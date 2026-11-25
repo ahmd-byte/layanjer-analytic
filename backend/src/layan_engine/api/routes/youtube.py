@@ -73,7 +73,7 @@ async def youtube_login(req: LoginRequest):
             }
         return {"status": "failed", "message": "Login timed out or failed"}
     finally:
-        await browser.close_all()
+        await browser.stop()
 
 
 @router.post("/verify-auth")
@@ -91,7 +91,7 @@ async def youtube_verify_auth():
             "channel_id": worker._channel_id,
         }
     finally:
-        await browser.close_all()
+        await browser.stop()
 
 
 # ── Extraction ────────────────────────────────────────────────────
@@ -182,7 +182,7 @@ async def youtube_extract(req: ExtractionRequest, db: Session = Depends(get_db))
         db.commit()
         return {"run_id": run_id, "status": "failed", "error": str(e)}
     finally:
-        await browser.close_all()
+        await browser.stop()
 
 
 # ── Metrics Retrieval ─────────────────────────────────────────────

@@ -42,8 +42,20 @@ Phase 3 — Core Local Foundation (complete)
   - 21 new tests (metric parsing, name normalization, API routes)
   - 29 total tests passing
 
+## In Progress
+- [x] Phase 5: TikTok integration
+  - TikTok Analytics worker (login, auth verify, username detection)
+  - Account metrics extraction (overview tab DOM scraping + generic fallback)
+  - Content metrics extraction (content tab video list parsing)
+  - Audience metrics extraction (followers tab demographics)
+  - Metric value parsing (K/M/B suffixes, percentages, NBSP handling)
+  - TikTok API routes (auth, extraction trigger, metrics retrieval)
+  - TikTok dashboard page (stat cards, metrics table, auth/extract controls)
+  - 21 new TikTok tests (metric parsing, name normalization, API routes)
+  - 50 total tests passing
+  - Bugfix: YouTube routes close_all() → stop()
+
 ## Pending
-- Phase 5: TikTok integration
 - Phase 6: Instagram integration
 - Phase 7: Facebook integration
 - Phase 8: AI integration and controlled recovery
@@ -57,8 +69,8 @@ Phase 3 — Core Local Foundation (complete)
 - None currently
 
 ## Known Issues
-- TikTok, Instagram, Facebook pages show empty states (no extraction implemented yet)
-- YouTube extraction requires manual browser login first
+- Instagram, Facebook pages show empty states (no extraction implemented yet)
+- YouTube and TikTok extraction require manual browser login first
 - Google Sheets not configured (needs OAuth credentials)
 - AI provider not configured (needs API key in .env)
 
@@ -72,4 +84,4 @@ Phase 3 — Core Local Foundation (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Implement TikTok Analytics extraction worker: browser login, profile detection, overview metrics, content performance, audience demographics.
+Implement Instagram Analytics extraction worker: browser login, profile detection, overview metrics, content performance, audience demographics.
