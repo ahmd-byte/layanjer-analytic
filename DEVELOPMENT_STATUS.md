@@ -55,8 +55,19 @@ Phase 3 — Core Local Foundation (complete)
   - 50 total tests passing
   - Bugfix: YouTube routes close_all() → stop()
 
+## In Progress
+- [x] Phase 6: Instagram integration
+  - Instagram Insights worker (login, auth verify, username detection)
+  - Account metrics extraction (Insights overview DOM + generic fallback)
+  - Content metrics extraction (content list with post/reel/story detection)
+  - Audience metrics extraction (demographics DOM parsing)
+  - Metric value parsing (K/M/B suffixes, percentages, +/- signs)
+  - Instagram API routes (auth, extraction trigger, metrics retrieval)
+  - Instagram dashboard page (stat cards, metrics table, auth/extract controls)
+  - 23 new Instagram tests (metric parsing, name normalization, API routes)
+  - 73 total tests passing
+
 ## Pending
-- Phase 6: Instagram integration
 - Phase 7: Facebook integration
 - Phase 8: AI integration and controlled recovery
 - Phase 9: Google Sheets integration
@@ -69,8 +80,9 @@ Phase 3 — Core Local Foundation (complete)
 - None currently
 
 ## Known Issues
-- Instagram, Facebook pages show empty states (no extraction implemented yet)
-- YouTube and TikTok extraction require manual browser login first
+- Facebook page shows empty state (no extraction implemented yet)
+- YouTube, TikTok, and Instagram extraction require manual browser login first
+- Instagram requires a Professional (Business or Creator) account for Insights access
 - Google Sheets not configured (needs OAuth credentials)
 - AI provider not configured (needs API key in .env)
 
@@ -84,4 +96,4 @@ Phase 3 — Core Local Foundation (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Implement Instagram Analytics extraction worker: browser login, profile detection, overview metrics, content performance, audience demographics.
+Implement Facebook Insights extraction worker: browser login, page detection, overview metrics, content performance, audience demographics.

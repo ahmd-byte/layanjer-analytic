@@ -90,6 +90,21 @@ export const api = {
   },
   aiUsage: () => fetchJson<any[]>('/system/ai-usage'),
 
+  // Instagram-specific
+  instagram: {
+    accounts: () => fetchJson<YouTubeAccount[]>('/instagram/accounts'),
+    verifyAuth: () => postJson<{ authenticated: boolean; username: string | null }>('/instagram/verify-auth', {}),
+    login: (accountId: string = 'default') => postJson<{ status: string; username?: string; message: string }>('/instagram/login', { account_id: accountId }),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/instagram/extract', params),
+    metrics: (params?: { account_id?: string; metric_name?: string }) => {
+      const qs = new URLSearchParams()
+      if (params?.account_id) qs.set('account_id', params.account_id)
+      if (params?.metric_name) qs.set('metric_name', params.metric_name)
+      const q = qs.toString()
+      return fetchJson<YouTubeMetric[]>(`/instagram/metrics${q ? '?' + q : ''}`)
+    },
+  },
+
   // TikTok-specific
   tiktok: {
     accounts: () => fetchJson<YouTubeAccount[]>('/tiktok/accounts'),

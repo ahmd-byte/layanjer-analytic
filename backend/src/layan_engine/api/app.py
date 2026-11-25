@@ -46,7 +46,7 @@ async def health():
     }
 
 
-from layan_engine.api.routes import accounts, analytics, extraction, system, tiktok, youtube  # noqa: E402
+from layan_engine.api.routes import accounts, analytics, extraction, instagram, system, tiktok, youtube  # noqa: E402
 
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
@@ -54,3 +54,4 @@ app.include_router(extraction.router, prefix="/api/extraction", tags=["extractio
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(youtube.router, prefix="/api/youtube", tags=["youtube"])
 app.include_router(tiktok.router, prefix="/api/tiktok", tags=["tiktok"])
+app.include_router(instagram.router, prefix="/api/instagram", tags=["instagram"])
