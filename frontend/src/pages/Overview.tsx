@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Users, BarChart3, Database, RefreshCw } from 'lucide-react'
 import StatCard from '../components/StatCard'
+import PlatformBarChart from '../components/PlatformBarChart'
+import ExtractionHistoryChart from '../components/ExtractionHistoryChart'
 import { api, type SystemStatus } from '../services/api'
+
+type PlatformSummary = { platform: string; metric_count: number; unique_metrics: number; total_runs: number; successful_runs: number; last_extraction: string | null }
+type ExtractionRun = { run_id: string; platform: string; status: string; metrics_extracted: number; metrics_failed: number; duration_seconds: number | null; started_at: string | null; completed_at: string | null }
 
 export default function Overview() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
+  const [platformSummary, setPlatformSummary] = useState<PlatformSummary[]>([])
+  const [extractionHistory, setExtractionHistory] = useState<ExtractionRun[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
     api.systemStatus().then(setStatus).catch((e) => setError(e.message))
+    api.platformSummary().then(setPlatformSummary).catch(() => {})
+    api.extractionHistory().then(setExtractionHistory).catch(() => {})
   }, [])
 
   if (error) {
@@ -71,6 +80,12 @@ export default function Overview() {
             : 'No extractions yet'}
           icon={RefreshCw}
         />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <PlatformBarChart data={platformSummary} title="Metrics by Platform" />
+        <ExtractionHistoryChart data={extractionHistory} title="Recent Extractions" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

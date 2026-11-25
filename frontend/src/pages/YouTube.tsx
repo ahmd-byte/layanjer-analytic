@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Eye, Clock, Users, TrendingUp, Play, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
 import StatCard from '../components/StatCard'
+import MetricLineChart from '../components/MetricLineChart'
+import { useTrends } from '../hooks/useTrends'
 import { api, type YouTubeMetric, type YouTubeAccount } from '../services/api'
 
 type ExtractionStatus = { running: boolean; lastResult: string | null; error: string | null }
@@ -69,6 +71,8 @@ export default function YouTube() {
     return val.toLocaleString()
   }
 
+  const metricNames = useMemo(() => [...new Set(metrics.map((m) => m.metric_name))], [metrics])
+  const trendData = useTrends('youtube', metricNames)
   const hasData = metrics.length > 0
   const hasAccounts = accounts.length > 0
 
@@ -160,6 +164,13 @@ export default function YouTube() {
               color="text-amber-500"
             />
           </div>
+
+          {/* Trend chart */}
+          {trendData.length > 0 && (
+            <div className="mb-6">
+              <MetricLineChart data={trendData} metricKeys={metricNames.slice(0, 6)} title="Metric Trends" />
+            </div>
+          )}
 
           {/* All metrics table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">

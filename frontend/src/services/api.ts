@@ -90,6 +90,18 @@ export const api = {
   },
   aiUsage: () => fetchJson<any[]>('/system/ai-usage'),
 
+  // Analytics charts
+  trends: (params?: { platform?: string; account_id?: string; metric_names?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.platform) qs.set('platform', params.platform)
+    if (params?.account_id) qs.set('account_id', params.account_id)
+    if (params?.metric_names) qs.set('metric_names', params.metric_names)
+    const q = qs.toString()
+    return fetchJson<Record<string, number | string | null>[]>(`/analytics/trends${q ? '?' + q : ''}`)
+  },
+  platformSummary: () => fetchJson<{ platform: string; metric_count: number; unique_metrics: number; total_runs: number; successful_runs: number; last_extraction: string | null }[]>('/analytics/platform-summary'),
+  extractionHistory: () => fetchJson<{ run_id: string; platform: string; status: string; metrics_extracted: number; metrics_failed: number; duration_seconds: number | null; started_at: string | null; completed_at: string | null }[]>('/analytics/extraction-history'),
+
   // AI
   ai: {
     status: () => fetchJson<{
