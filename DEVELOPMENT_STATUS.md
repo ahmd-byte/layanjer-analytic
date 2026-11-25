@@ -1,7 +1,7 @@
 # Development Status
 
 ## Current Phase
-Phase 3 — Core Local Foundation (complete)
+Phase 7 — Facebook Integration (complete)
 
 ## Completed
 - [x] Phase 1: Environment & GitHub initialization
@@ -67,8 +67,19 @@ Phase 3 — Core Local Foundation (complete)
   - 23 new Instagram tests (metric parsing, name normalization, API routes)
   - 73 total tests passing
 
+## In Progress
+- [x] Phase 7: Facebook integration
+  - Facebook Page Insights worker (login, auth verify, page detection)
+  - Account metrics extraction (Meta Business Suite + classic Insights fallback)
+  - Content metrics extraction (content list with post/reel/story/video/live detection)
+  - Audience metrics extraction (demographics DOM parsing)
+  - Metric value parsing (K/M/B suffixes, percentages, +/- signs)
+  - Facebook API routes (auth, extraction trigger, metrics retrieval)
+  - Facebook dashboard page (stat cards, metrics table, auth/extract controls)
+  - 23 new Facebook tests (metric parsing, name normalization, API routes)
+  - 96 total tests passing
+
 ## Pending
-- Phase 7: Facebook integration
 - Phase 8: AI integration and controlled recovery
 - Phase 9: Google Sheets integration
 - Phase 10: Dashboard data visualization
@@ -80,9 +91,9 @@ Phase 3 — Core Local Foundation (complete)
 - None currently
 
 ## Known Issues
-- Facebook page shows empty state (no extraction implemented yet)
-- YouTube, TikTok, and Instagram extraction require manual browser login first
+- All platform extractions require manual browser login first
 - Instagram requires a Professional (Business or Creator) account for Insights access
+- Facebook tries Meta Business Suite first, falls back to classic Page Insights
 - Google Sheets not configured (needs OAuth credentials)
 - AI provider not configured (needs API key in .env)
 
@@ -96,4 +107,4 @@ Phase 3 — Core Local Foundation (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Implement Facebook Insights extraction worker: browser login, page detection, overview metrics, content performance, audience demographics.
+Phase 8: AI integration and controlled recovery — connect DeepSeek/OpenAI for intelligent error recovery, page navigation, and data extraction assistance.
