@@ -1,0 +1,58 @@
+# Environment
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Browser & Auth
+browser_profiles/
+auth_state/
+cookies/
+credentials/
+
+# Private data
+private_reports/
+downloads/
+local_data/
+screenshots/
+traces/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs & Backups
+logs/
+backups/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Build
+*.egg
+*.whl
+build/
+htmlcov/
+.coverage
+.pytest_cache/
+.ruff_cache/
