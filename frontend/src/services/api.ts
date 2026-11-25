@@ -46,6 +46,37 @@ export interface ExtractionRunInfo {
   duration_seconds: number | null
 }
 
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const resp = await fetch(`${BASE_URL}${url}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
+  return resp.json()
+}
+
+export interface YouTubeMetric {
+  id: number
+  account_id: string
+  metric_name: string
+  metric_value: number | null
+  date_start: string
+  date_end: string
+  source_dashboard: string | null
+  extraction_method: string | null
+  extracted_at: string | null
+}
+
+export interface YouTubeAccount {
+  id: number
+  account_id: string
+  account_name: string
+  account_url: string | null
+  auth_status: string
+  last_auth_at: string | null
+}
+
 export const api = {
   health: () => fetchJson<HealthStatus>('/health'),
   systemStatus: () => fetchJson<SystemStatus>('/system/status'),
@@ -58,4 +89,19 @@ export const api = {
     return fetchJson<ExtractionRunInfo[]>(`/extraction/runs${q ? '?' + q : ''}`)
   },
   aiUsage: () => fetchJson<any[]>('/system/ai-usage'),
+
+  // YouTube-specific
+  youtube: {
+    accounts: () => fetchJson<YouTubeAccount[]>('/youtube/accounts'),
+    verifyAuth: () => postJson<{ authenticated: boolean; channel_id: string | null }>('/youtube/verify-auth', {}),
+    login: (accountId: string = 'default') => postJson<{ status: string; channel_id?: string; message: string }>('/youtube/login', { account_id: accountId }),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/youtube/extract', params),
+    metrics: (params?: { account_id?: string; metric_name?: string }) => {
+      const qs = new URLSearchParams()
+      if (params?.account_id) qs.set('account_id', params.account_id)
+      if (params?.metric_name) qs.set('metric_name', params.metric_name)
+      const q = qs.toString()
+      return fetchJson<YouTubeMetric[]>(`/youtube/metrics${q ? '?' + q : ''}`)
+    },
+  },
 }

@@ -31,7 +31,16 @@ Phase 3 — Core Local Foundation (complete)
   - Start script (start.ps1)
 
 ## In Progress
-- [ ] Phase 4: YouTube Studio integration
+- [x] Phase 4: YouTube Studio integration
+  - YouTube Studio worker (login, auth verify, channel detection)
+  - Account metrics extraction (native CSV export + DOM fallback)
+  - Content metrics extraction (content tab table parsing)
+  - Audience metrics extraction (demographics DOM parsing)
+  - Metric value parsing (K/M/B suffixes, percentages, time formats)
+  - YouTube API routes (auth, extraction trigger, metrics retrieval)
+  - YouTube dashboard page (stat cards, metrics table, auth/extract controls)
+  - 21 new tests (metric parsing, name normalization, API routes)
+  - 29 total tests passing
 
 ## Pending
 - Phase 5: TikTok integration
@@ -48,7 +57,8 @@ Phase 3 — Core Local Foundation (complete)
 - None currently
 
 ## Known Issues
-- Platform pages show empty states (no extraction implemented yet)
+- TikTok, Instagram, Facebook pages show empty states (no extraction implemented yet)
+- YouTube extraction requires manual browser login first
 - Google Sheets not configured (needs OAuth credentials)
 - AI provider not configured (needs API key in .env)
 
@@ -62,4 +72,4 @@ Phase 3 — Core Local Foundation (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Implement YouTube Studio extraction worker: browser login, channel identification, overview analytics, native report download, structured extraction.
+Implement TikTok Analytics extraction worker: browser login, profile detection, overview metrics, content performance, audience demographics.
