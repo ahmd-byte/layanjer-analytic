@@ -14,7 +14,10 @@ from layan_engine.storage.database import init_db
 async def lifespan(app: FastAPI):
     setup_logging()
     init_db()
+    from layan_engine.scheduler.engine import scheduler_loop
+    await scheduler_loop.start()
     yield
+    await scheduler_loop.stop()
 
 
 app = FastAPI(
@@ -46,13 +49,14 @@ async def health():
     }
 
 
-from layan_engine.api.routes import accounts, ai, analytics, extraction, facebook, instagram, sheets, system, tiktok, youtube  # noqa: E402
+from layan_engine.api.routes import accounts, ai, analytics, extraction, facebook, instagram, scheduler, sheets, system, tiktok, youtube  # noqa: E402
 
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(extraction.router, prefix="/api/extraction", tags=["extraction"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(scheduler.router, prefix="/api/scheduler", tags=["scheduler"])
 app.include_router(sheets.router, prefix="/api/sheets", tags=["sheets"])
 app.include_router(youtube.router, prefix="/api/youtube", tags=["youtube"])
 app.include_router(tiktok.router, prefix="/api/tiktok", tags=["tiktok"])

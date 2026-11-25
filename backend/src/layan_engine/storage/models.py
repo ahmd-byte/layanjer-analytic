@@ -232,6 +232,30 @@ class AIUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class Schedule(Base):
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    job_type: Mapped[str] = mapped_column(String(50), default="full")
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
+    lookback_days: Mapped[int] = mapped_column(Integer, default=7)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[Optional[str]] = mapped_column(String(30))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("platform", "account_id", "job_type", name="uq_schedule_platform_account"),
+    )
+
+
 class WorkflowVersion(Base):
     __tablename__ = "workflow_versions"
 

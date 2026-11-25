@@ -1,7 +1,7 @@
 # Development Status
 
 ## Current Phase
-Phase 10 — Dashboard Data Visualization (complete)
+Phase 11 — Scheduling and Continuous Operation (complete)
 
 ## Completed
 - [x] Phase 1: Environment & GitHub initialization
@@ -113,8 +113,21 @@ Phase 10 — Dashboard Data Visualization (complete)
   - Frontend API client: api.trends(), api.platformSummary(), api.extractionHistory()
   - TypeScript check clean, 141 total tests passing
 
+## In Progress
+- [x] Phase 11: Scheduling and continuous operation
+  - Schedule model in database with platform, account, interval, lookback, active state, failure tracking
+  - SchedulerLoop: async background loop checking for due schedules every 30 seconds
+  - Automatic extraction execution with browser session management per platform
+  - Full extraction mode (account + content metrics in one run)
+  - Auto-disable after 5 consecutive failures to prevent runaway errors
+  - Scheduler API routes: list, create, update, delete, trigger, status
+  - Operations page updated with schedule management UI (create form, pause/resume, trigger, delete)
+  - Scheduler wired into FastAPI lifespan (starts on server boot, stops on shutdown)
+  - Frontend API client with full scheduler CRUD
+  - 16 new scheduler tests (model, engine CRUD, due filtering, loop state, 8 API route tests)
+  - 157 total tests passing
+
 ## Pending
-- Phase 11: Scheduling and continuous operation
 - Phase 12: Production hardening
 - Phase 13: Stability observation
 
@@ -138,4 +151,4 @@ Phase 10 — Dashboard Data Visualization (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Phase 11: Scheduling and continuous operation — add cron-based extraction scheduling and background task management.
+Phase 12: Production hardening — error handling, logging, rate limiting, graceful shutdown, and configuration validation.

@@ -46,6 +46,23 @@ export interface ExtractionRunInfo {
   duration_seconds: number | null
 }
 
+export interface ScheduleInfo {
+  id: number
+  name: string
+  platform: string
+  account_id: string
+  job_type: string
+  interval_minutes: number
+  lookback_days: number
+  is_active: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: string | null
+  last_error: string | null
+  consecutive_failures: number
+  created_at: string | null
+}
+
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const resp = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
@@ -89,6 +106,20 @@ export const api = {
     return fetchJson<ExtractionRunInfo[]>(`/extraction/runs${q ? '?' + q : ''}`)
   },
   aiUsage: () => fetchJson<any[]>('/system/ai-usage'),
+
+  // Scheduler
+  scheduler: {
+    list: () => fetchJson<ScheduleInfo[]>('/scheduler/'),
+    status: () => fetchJson<{ running: boolean; total_schedules: number; active_schedules: number }>('/scheduler/status'),
+    create: (data: { name: string; platform: string; account_id: string; job_type?: string; interval_minutes?: number; lookback_days?: number }) =>
+      postJson<ScheduleInfo>('/scheduler/', data),
+    update: (id: number, data: { name?: string; interval_minutes?: number; lookback_days?: number; is_active?: boolean }) => {
+      return fetch(`${BASE_URL}/scheduler/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => { if (!r.ok) throw new Error(`API error: ${r.status}`); return r.json() as Promise<ScheduleInfo> })
+    },
+    delete: (id: number) => fetch(`${BASE_URL}/scheduler/${id}`, { method: 'DELETE' }).then(r => { if (!r.ok) throw new Error(`API error: ${r.status}`); return r.json() }),
+    trigger: (id: number) => postJson<{ status: string; metrics_saved: number; error: string | null }>(`/scheduler/${id}/trigger`, {}),
+  },
 
   // Analytics charts
   trends: (params?: { platform?: string; account_id?: string; metric_names?: string }) => {
