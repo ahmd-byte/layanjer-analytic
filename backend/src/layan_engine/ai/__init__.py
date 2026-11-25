@@ -1,1 +1,1 @@
-"""AI provider abstraction layer."""
+"""AI provider abstraction layer with recovery and budget tracking."""

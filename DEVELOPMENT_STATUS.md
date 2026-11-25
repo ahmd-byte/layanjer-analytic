@@ -1,7 +1,7 @@
 # Development Status
 
 ## Current Phase
-Phase 7 — Facebook Integration (complete)
+Phase 8 — AI Integration and Controlled Recovery (complete)
 
 ## Completed
 - [x] Phase 1: Environment & GitHub initialization
@@ -79,8 +79,19 @@ Phase 7 — Facebook Integration (complete)
   - 23 new Facebook tests (metric parsing, name normalization, API routes)
   - 96 total tests passing
 
+## In Progress
+- [x] Phase 8: AI integration and controlled recovery
+  - Recovery engine with AI-assisted DOM extraction, selector recovery, page classification, value interpretation
+  - Budget tracking with daily spend limits and cost estimation (DeepSeek + OpenAI rates)
+  - DOM sanitizer strips scripts, styles, and sensitive attributes before sending to AI
+  - Prompt templates for structured JSON responses (metrics, selectors, classification, value parsing)
+  - AI fallback method on base PlatformWorker — all 4 platform workers benefit
+  - AI API routes: /api/ai/status, /api/ai/interpret-value, /api/ai/classify-page
+  - AI usage recording with per-request cost tracking in AIUsage table
+  - 31 new AI tests (JSON extraction, DOM sanitization, budget estimation, recovery engine, prompts, API routes)
+  - 127 total tests passing
+
 ## Pending
-- Phase 8: AI integration and controlled recovery
 - Phase 9: Google Sheets integration
 - Phase 10: Dashboard data visualization
 - Phase 11: Scheduling and continuous operation
@@ -95,16 +106,16 @@ Phase 7 — Facebook Integration (complete)
 - Instagram requires a Professional (Business or Creator) account for Insights access
 - Facebook tries Meta Business Suite first, falls back to classic Page Insights
 - Google Sheets not configured (needs OAuth credentials)
-- AI provider not configured (needs API key in .env)
+- AI provider not configured yet (set AI_API_KEY in .env to enable recovery)
 
 ## Architecture Decisions
 - SQLite as primary local database (source of truth)
 - Playwright Python for deterministic browser automation
-- Browser Use for AI-assisted recovery (not yet installed)
+- Custom AI recovery engine (deterministic first, AI fallback on failure)
 - DeepSeek as preferred AI provider, OpenAI as alternative
 - React + Vite + Tailwind + Recharts for frontend dashboard
 - FastAPI for local backend, bound to localhost only
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Phase 8: AI integration and controlled recovery — connect DeepSeek/OpenAI for intelligent error recovery, page navigation, and data extraction assistance.
+Phase 9: Google Sheets integration — sync extracted metrics to Google Sheets for reporting and sharing.
