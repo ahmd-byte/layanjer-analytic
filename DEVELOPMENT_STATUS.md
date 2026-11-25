@@ -1,7 +1,7 @@
 # Development Status
 
 ## Current Phase
-Phase 8 — AI Integration and Controlled Recovery (complete)
+Phase 9 — Google Sheets Integration (complete)
 
 ## Completed
 - [x] Phase 1: Environment & GitHub initialization
@@ -91,8 +91,19 @@ Phase 8 — AI Integration and Controlled Recovery (complete)
   - 31 new AI tests (JSON extraction, DOM sanitization, budget estimation, recovery engine, prompts, API routes)
   - 127 total tests passing
 
+## In Progress
+- [x] Phase 9: Google Sheets integration
+  - SheetsClient with Google Service Account auth (gspread + google-auth)
+  - Full sync: replaces Account Metrics, Content Metrics, and Summary worksheets
+  - Incremental sync: processes SyncQueue pending items only
+  - Summary tab aggregates latest metric values per platform/account
+  - Sheets API routes: /api/sheets/status, /api/sheets/test-connection, /api/sheets/sync, /api/sheets/sync-incremental
+  - Settings page updated with live Sheets status, test connection, and sync buttons
+  - Frontend API client updated with ai and sheets sections
+  - 14 new Sheets tests (client config, sync engine, headers, API routes)
+  - 141 total tests passing
+
 ## Pending
-- Phase 9: Google Sheets integration
 - Phase 10: Dashboard data visualization
 - Phase 11: Scheduling and continuous operation
 - Phase 12: Production hardening
@@ -105,7 +116,7 @@ Phase 8 — AI Integration and Controlled Recovery (complete)
 - All platform extractions require manual browser login first
 - Instagram requires a Professional (Business or Creator) account for Insights access
 - Facebook tries Meta Business Suite first, falls back to classic Page Insights
-- Google Sheets not configured (needs OAuth credentials)
+- Google Sheets not configured yet (set GOOGLE_SHEETS_CREDENTIALS_PATH and GOOGLE_SHEETS_SPREADSHEET_ID in .env, install with pip install layan-engine[sheets])
 - AI provider not configured yet (set AI_API_KEY in .env to enable recovery)
 
 ## Architecture Decisions
@@ -118,4 +129,4 @@ Phase 8 — AI Integration and Controlled Recovery (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Phase 9: Google Sheets integration — sync extracted metrics to Google Sheets for reporting and sharing.
+Phase 10: Dashboard data visualization — add charts and trend graphs to the frontend dashboard using Recharts.

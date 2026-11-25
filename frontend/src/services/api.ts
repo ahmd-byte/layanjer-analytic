@@ -90,6 +90,31 @@ export const api = {
   },
   aiUsage: () => fetchJson<any[]>('/system/ai-usage'),
 
+  // AI
+  ai: {
+    status: () => fetchJson<{
+      provider: string
+      model: string
+      configured: boolean
+      available: boolean
+      budget: { daily_limit: number; spent_today: number; remaining: number; within_budget: boolean }
+    }>('/ai/status'),
+  },
+
+  // Google Sheets
+  sheets: {
+    status: () => fetchJson<{
+      configured: boolean
+      spreadsheet_id: string | null
+      credentials_set: boolean
+      sync_queue: { pending: number; synced: number }
+      last_sync_at: string | null
+    }>('/sheets/status'),
+    testConnection: () => postJson<{ connected: boolean; spreadsheet_title?: string; url?: string; error?: string }>('/sheets/test-connection', {}),
+    sync: () => postJson<{ success: boolean; account_metrics_synced: number; content_metrics_synced: number; summary_rows: number; errors: string[]; warnings: string[] }>('/sheets/sync', {}),
+    syncIncremental: () => postJson<{ success: boolean; account_metrics_synced: number; content_metrics_synced: number; errors: string[]; warnings: string[] }>('/sheets/sync-incremental', {}),
+  },
+
   // Facebook-specific
   facebook: {
     accounts: () => fetchJson<YouTubeAccount[]>('/facebook/accounts'),
