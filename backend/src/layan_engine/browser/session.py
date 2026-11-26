@@ -31,6 +31,9 @@ class BrowserSession:
         if key in self._contexts:
             return self._contexts[key]
 
+        if not self.is_running:
+            await self.start()
+
         profile_dir = Path(settings.browser_profiles_dir) / platform / account_id
         profile_dir.mkdir(parents=True, exist_ok=True)
         storage_path = profile_dir / "state.json"
