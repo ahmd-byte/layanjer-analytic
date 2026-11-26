@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from layan_engine.storage.database import get_db
@@ -136,7 +136,7 @@ def get_platform_summary(db: Session = Depends(get_db)):
             ExtractionRun.platform,
             func.count(ExtractionRun.id).label("total_runs"),
             func.sum(
-                func.case(
+                case(
                     (ExtractionRun.status == "completed", 1),
                     else_=0,
                 )
