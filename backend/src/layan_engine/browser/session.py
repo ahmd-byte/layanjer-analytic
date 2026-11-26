@@ -45,6 +45,12 @@ class BrowserSession:
         }
         if storage_path.exists():
             ctx_kwargs["storage_state"] = str(storage_path)
+        if settings.browser_headless:
+            # The default "HeadlessChrome" UA gets YouTube Studio's unsupported-browser page.
+            ctx_kwargs["user_agent"] = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{self._browser.version} Safari/537.36"
+            )
 
         ctx = await self._browser.new_context(**ctx_kwargs)
         self._contexts[key] = ctx

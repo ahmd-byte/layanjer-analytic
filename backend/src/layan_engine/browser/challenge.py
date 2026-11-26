@@ -41,32 +41,27 @@ class ChallengeDetection:
     requires_human: bool = False
 
 
+# Matched against the page's visible text and URL only. Raw HTML is not used:
+# dashboard JS bundles routinely contain words like "recaptcha" or "2fa".
 _CHALLENGE_PATTERNS = {
     ChallengeType.CLOUDFLARE: [
         r"checking your browser",
-        r"cloudflare",
-        r"cf-browser-verification",
-        r"challenge-platform",
+        r"challenges\.cloudflare\.com",
+        r"/cdn-cgi/challenge-platform",
     ],
-    ChallengeType.RECAPTCHA: [
-        r"g-recaptcha",
-        r"recaptcha",
-        r"grecaptcha",
-    ],
-    ChallengeType.HCAPTCHA: [
-        r"h-captcha",
-        r"hcaptcha",
-    ],
-    ChallengeType.TURNSTILE: [
-        r"cf-turnstile",
-        r"turnstile",
+    ChallengeType.CAPTCHA: [
+        r"i'?m not a robot",
+        r"verify (that )?you are (a )?human",
+        r"complete the (security )?captcha",
+        r"drag the (puzzle|slider)",
     ],
     ChallengeType.TWO_FACTOR: [
-        r"two.?factor",
-        r"2fa",
-        r"verification code",
-        r"enter.*code.*sent",
-        r"authenticator",
+        r"\btwo.?factor authentication\b",
+        r"\benter (the )?(6.digit |security |verification |login )?code\b",
+        r"\bverification code\b",
+        r"/two_step_verification",
+        r"/two_factor",
+        r"/challenge/(totp|sms|ipp|az)",
     ],
     ChallengeType.LOGIN_REDIRECT: [
         r"accounts\.google\.com/signin",
@@ -75,17 +70,16 @@ _CHALLENGE_PATTERNS = {
         r"www\.instagram\.com/accounts/login",
     ],
     ChallengeType.SECURITY_CHECKPOINT: [
-        r"checkpoint",
-        r"security.*check",
-        r"verify.*identity",
-        r"confirm.*account",
-        r"suspicious.*login",
+        r"facebook\.com/checkpoint",
+        r"instagram\.com/challenge",
+        r"\bsecurity check\b",
+        r"\bverify (it'?s you|your identity)\b",
+        r"\bsuspicious login\b",
     ],
     ChallengeType.SUSPICIOUS_ACTIVITY: [
-        r"unusual.*activity",
-        r"suspicious.*activity",
-        r"automated.*behavior",
-        r"bot.*detected",
+        r"\bunusual (traffic|activity)\b",
+        r"\bsuspicious activity\b",
+        r"\bautomated (behaviou?r|requests|queries)\b",
     ],
 }
 
@@ -108,14 +102,14 @@ async def detect_challenge(page: Page, response: Response | None = None) -> Chal
 
     try:
         url = page.url
-        content = await page.content()
-        content_lower = content.lower()
+        text = await page.evaluate("() => document.body ? document.body.innerText : ''")
     except Exception:
         return result
 
+    haystack = f"{url}\n{text}".lower()
     for challenge_type, patterns in _CHALLENGE_PATTERNS.items():
         for pattern in patterns:
-            if re.search(pattern, content_lower) or re.search(pattern, url.lower()):
+            if re.search(pattern, haystack):
                 result.detected = True
                 result.challenge_type = challenge_type
                 result.description = f"Matched pattern: {pattern}"

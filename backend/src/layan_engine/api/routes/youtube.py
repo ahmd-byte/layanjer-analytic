@@ -56,16 +56,21 @@ def list_youtube_accounts(db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def youtube_login(req: LoginRequest):
+async def youtube_login(req: LoginRequest, db: Session = Depends(get_db)):
     """Open a browser window for the user to log in to YouTube Studio."""
     from layan_engine.browser.session import BrowserSession
     from layan_engine.platforms.youtube.worker import YouTubeWorker
+    from layan_engine.storage.accounts import record_authenticated_account
 
     browser = BrowserSession()
     worker = YouTubeWorker(browser)
     try:
         success = await worker.login(req.account_id)
         if success:
+            record_authenticated_account(
+                db, "youtube", req.account_id, worker._channel_id,
+                f"https://studio.youtube.com/channel/{worker._channel_id}",
+            )
             return {
                 "status": "authenticated",
                 "channel_id": worker._channel_id,
@@ -162,7 +167,7 @@ async def youtube_extract(req: ExtractionRequest, db: Session = Depends(get_db))
         run.error_message = "; ".join(result.errors) if result.errors else None
         run.completed_at = datetime.now(timezone.utc)
         run.duration_seconds = (
-            (run.completed_at - run.started_at).total_seconds() if run.started_at else None
+            (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         )
         db.commit()
 

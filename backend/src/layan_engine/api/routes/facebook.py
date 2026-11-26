@@ -55,16 +55,18 @@ def list_facebook_accounts(db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def facebook_login(req: LoginRequest):
+async def facebook_login(req: LoginRequest, db: Session = Depends(get_db)):
     """Open a browser window for the user to log in to Facebook."""
     from layan_engine.browser.session import BrowserSession
     from layan_engine.platforms.facebook.worker import FacebookWorker
+    from layan_engine.storage.accounts import record_authenticated_account
 
     browser = BrowserSession()
     worker = FacebookWorker(browser)
     try:
         success = await worker.login(req.account_id)
         if success:
+            record_authenticated_account(db, "facebook", req.account_id, worker._page_name or None)
             return {
                 "status": "authenticated",
                 "page_id": worker._page_id,
@@ -161,7 +163,7 @@ async def facebook_extract(req: ExtractionRequest, db: Session = Depends(get_db)
         run.error_message = "; ".join(result.errors) if result.errors else None
         run.completed_at = datetime.now(timezone.utc)
         run.duration_seconds = (
-            (run.completed_at - run.started_at).total_seconds() if run.started_at else None
+            (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         )
         db.commit()
 

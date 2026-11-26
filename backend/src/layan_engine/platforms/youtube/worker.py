@@ -29,6 +29,30 @@ ANALYTICS_TAB_OVERVIEW = "tab-overview"
 ANALYTICS_TAB_CONTENT = "tab-content"
 ANALYTICS_TAB_AUDIENCE = "tab-audience"
 
+_PERIOD_CHIPS = {7: "7 days", 28: "28 days", 90: "90 days"}
+
+# Studio (2026) renders each KPI value alone in a ytcp-simple-metric-view-model; its label
+# is the nearest non-numeric, non-date text line in an ancestor (before it, or after it on chart cards).
+_STUDIO_METRICS_JS = r"""() => {
+  const DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}$/;
+  const isNoise = s => !s || /^[\d.,%+\-−KMB\s]+$/i.test(s) || DATE.test(s);
+  const metrics = [];
+  for (const el of document.querySelectorAll('ytcp-simple-metric-view-model')) {
+    const value = el.innerText.trim();
+    let n = el.parentElement, label = null;
+    for (let d = 0; n && d < 20 && !label; d++, n = n.parentElement) {
+      const lines = n.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+      const i = lines.indexOf(value);
+      if (i < 0) continue;
+      for (let j = i - 1; j >= 0 && !label; j--) if (!isNoise(lines[j])) label = lines[j];
+      for (let j = i + 1; j < lines.length && !label; j++) if (!isNoise(lines[j])) label = lines[j];
+    }
+    metrics.push({label, value});
+  }
+  const dates = document.body.innerText.split('\n').map(s => s.trim()).filter(s => DATE.test(s)).slice(0, 2);
+  return {metrics, dates};
+}"""
+
 
 class YouTubeWorker(PlatformWorker):
     platform = "youtube"
@@ -104,6 +128,14 @@ class YouTubeWorker(PlatformWorker):
         finally:
             await page.close()
 
+    async def _resolve_channel_id(self, page: Page, account_id: str) -> str:
+        """account_id is the saved-profile key (e.g. "default"); Studio URLs need the UC… channel ID."""
+        if account_id.startswith("UC"):
+            return account_id
+        await page.goto(STUDIO_URL, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+        await page.wait_for_timeout(3000)
+        return await self._detect_channel_id(page) or account_id
+
     async def _detect_channel_id(self, page: Page) -> str | None:
         """Extract the channel ID from YouTube Studio page URL or DOM."""
         url = page.url
@@ -153,7 +185,8 @@ class YouTubeWorker(PlatformWorker):
 
         try:
             # Navigate to analytics overview
-            analytics_url = f"{STUDIO_URL}/channel/{account_id}/analytics/tab-overview"
+            channel_id = await self._resolve_channel_id(page, account_id)
+            analytics_url = f"{STUDIO_URL}/channel/{channel_id}/analytics/tab-overview"
             resp = await page.goto(analytics_url, wait_until="domcontentloaded", timeout=settings.browser_timeout)
 
             challenge = await detect_challenge(page, resp)
@@ -162,6 +195,7 @@ class YouTubeWorker(PlatformWorker):
                 return result
 
             await page.wait_for_timeout(3000)
+            await self._select_period(page, date_start, date_end)
 
             # Try native CSV export first
             export_result = await self._try_export_analytics(page, account_id, date_start, date_end)
@@ -273,7 +307,9 @@ class YouTubeWorker(PlatformWorker):
         self, page: Page, account_id: str, date_start: str, date_end: str
     ) -> list[dict[str, Any]]:
         """Extract overview metrics from YouTube Studio DOM."""
-        metrics = []
+        metrics = await self._extract_studio_metric_models(page, account_id, date_start, date_end)
+        if metrics:
+            return metrics
 
         # YouTube Studio analytics cards show key metrics as large numbers
         # They use specific element patterns
@@ -315,6 +351,54 @@ class YouTubeWorker(PlatformWorker):
         if not metrics:
             metrics = await self._extract_metric_cards_generic(page, account_id, date_start, date_end)
 
+        return metrics
+
+    async def _select_period(self, page: Page, date_start: str, date_end: str) -> None:
+        """Click the Studio period chip (7/28/90 days) closest to the requested range."""
+        try:
+            span = (datetime.fromisoformat(date_end) - datetime.fromisoformat(date_start)).days + 1
+        except ValueError:
+            return
+        days = min(_PERIOD_CHIPS, key=lambda d: abs(d - span))
+        try:
+            await page.get_by_text(_PERIOD_CHIPS[days], exact=True).first.click(timeout=3000)
+            await page.wait_for_timeout(4000)
+        except Exception:
+            log.warning("youtube_period_select_failed", days=days)
+
+    async def _extract_studio_metric_models(
+        self, page: Page, account_id: str, date_start: str, date_end: str
+    ) -> list[dict[str, Any]]:
+        """Read Studio's ytcp-simple-metric-view-model cards, stamped with the range the page shows."""
+        try:
+            found = await page.evaluate(_STUDIO_METRICS_JS)
+        except Exception:
+            return []
+
+        shown = found.get("dates") or []
+        if len(shown) == 2:
+            try:
+                date_start, date_end = (datetime.strptime(d, "%b %d, %Y").date().isoformat() for d in shown)
+            except ValueError:
+                pass
+
+        metrics: list[dict[str, Any]] = []
+        for card in found.get("metrics", []):
+            name = self._normalize_metric_name(card.get("label") or "")
+            value = self._parse_metric_value(card.get("value") or "")
+            if not name or value is None or any(m["metric_name"] == name for m in metrics):
+                continue
+            metrics.append({
+                "platform": "youtube",
+                "account_id": account_id,
+                "metric_name": name,
+                "native_metric_name": card["label"],
+                "metric_value": value,
+                "date_start": date_start,
+                "date_end": date_end,
+                "source_dashboard": "YouTube Studio Overview",
+                "extraction_method": "dom",
+            })
         return metrics
 
     async def _extract_metric_cards_generic(
@@ -395,7 +479,8 @@ class YouTubeWorker(PlatformWorker):
         page = await ctx.new_page()
 
         try:
-            content_url = f"{STUDIO_URL}/channel/{account_id}/analytics/tab-content"
+            channel_id = await self._resolve_channel_id(page, account_id)
+            content_url = f"{STUDIO_URL}/channel/{channel_id}/analytics/tab-content"
             resp = await page.goto(content_url, wait_until="domcontentloaded", timeout=settings.browser_timeout)
 
             challenge = await detect_challenge(page, resp)
@@ -481,7 +566,8 @@ class YouTubeWorker(PlatformWorker):
         page = await ctx.new_page()
 
         try:
-            audience_url = f"{STUDIO_URL}/channel/{account_id}/analytics/tab-audience"
+            channel_id = await self._resolve_channel_id(page, account_id)
+            audience_url = f"{STUDIO_URL}/channel/{channel_id}/analytics/tab-audience"
             resp = await page.goto(audience_url, wait_until="domcontentloaded", timeout=settings.browser_timeout)
 
             challenge = await detect_challenge(page, resp)

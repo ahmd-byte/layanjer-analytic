@@ -93,7 +93,8 @@ class FacebookWorker(PlatformWorker):
 
             try:
                 await page.wait_for_url(
-                    "**/facebook.com/**",
+                    lambda url: "facebook.com" in url
+                    and not any(s in url for s in ("/login", "/checkpoint", "two_step_verification", "/recover")),
                     timeout=300_000,
                 )
                 await page.wait_for_timeout(5000)

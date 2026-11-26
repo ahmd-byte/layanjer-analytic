@@ -208,7 +208,7 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
         run.metrics_failed = len(result.errors)
         run.error_message = "; ".join(result.errors) if result.errors else None
         run.completed_at = _utcnow()
-        run.duration_seconds = (run.completed_at - run.started_at).total_seconds() if run.started_at else None
+        run.duration_seconds = (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         db.commit()
 
         return run.status, metrics_saved, run.error_message

@@ -81,7 +81,8 @@ class InstagramWorker(PlatformWorker):
 
             try:
                 await page.wait_for_url(
-                    "**/instagram.com/**",
+                    lambda url: "instagram.com" in url
+                    and not any(s in url for s in ("/accounts/login", "/challenge", "two_factor")),
                     timeout=300_000,
                 )
                 await page.wait_for_timeout(5000)

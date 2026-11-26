@@ -82,7 +82,7 @@ class TikTokWorker(PlatformWorker):
             # Wait up to 5 minutes for login completion
             try:
                 await page.wait_for_url(
-                    "**/tiktok.com/**",
+                    lambda url: "tiktok.com" in url and "/login" not in url,
                     timeout=300_000,
                 )
                 # Give page time to settle after redirect

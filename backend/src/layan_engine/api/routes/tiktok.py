@@ -55,16 +55,18 @@ def list_tiktok_accounts(db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def tiktok_login(req: LoginRequest):
+async def tiktok_login(req: LoginRequest, db: Session = Depends(get_db)):
     """Open a browser window for the user to log in to TikTok."""
     from layan_engine.browser.session import BrowserSession
     from layan_engine.platforms.tiktok.worker import TikTokWorker
+    from layan_engine.storage.accounts import record_authenticated_account
 
     browser = BrowserSession()
     worker = TikTokWorker(browser)
     try:
         success = await worker.login(req.account_id)
         if success:
+            record_authenticated_account(db, "tiktok", req.account_id, worker._username)
             return {
                 "status": "authenticated",
                 "username": worker._username,
@@ -159,7 +161,7 @@ async def tiktok_extract(req: ExtractionRequest, db: Session = Depends(get_db)):
         run.error_message = "; ".join(result.errors) if result.errors else None
         run.completed_at = datetime.now(timezone.utc)
         run.duration_seconds = (
-            (run.completed_at - run.started_at).total_seconds() if run.started_at else None
+            (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         )
         db.commit()
 
