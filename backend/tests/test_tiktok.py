@@ -120,3 +120,24 @@ def test_tiktok_audience_metrics_empty(client):
     resp = client.get("/api/tiktok/audience-metrics")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+class TestParseStudioCards:
+    LABELS = {"Video views": "video_views", "Likes": "likes", "Est. rewards": "est_rewards_usd"}
+
+    def test_reads_value_after_label(self):
+        from layan_engine.platforms.tiktok.worker import parse_studio_cards
+
+        lines = ["Last 7 days", "Video views", "1,234", "+12", "(5%)", "Likes", "56", "0", "(--)"]
+        assert parse_studio_cards(lines, self.LABELS) == {"video_views": 1234, "likes": 56}
+
+    def test_no_activity_dashes_are_zero_and_rewards_drop_currency(self):
+        from layan_engine.platforms.tiktok.worker import parse_studio_cards
+
+        lines = ["Video views", "--", "0", "(--)", "Est.\u00a0rewards", "$1.50", "0.00"]
+        assert parse_studio_cards(lines, self.LABELS) == {"video_views": 0, "est_rewards_usd": 1.5}
+
+    def test_first_occurrence_wins(self):
+        from layan_engine.platforms.tiktok.worker import parse_studio_cards
+
+        assert parse_studio_cards(["Likes", "3", "Likes", "9"], self.LABELS) == {"likes": 3}

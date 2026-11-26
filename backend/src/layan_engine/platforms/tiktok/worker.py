@@ -19,7 +19,24 @@ from layan_engine.platforms.base import ExtractionResult, PlatformWorker
 
 log = get_logger(__name__)
 
-TIKTOK_ANALYTICS_URL = "https://www.tiktok.com/analytics"
+TIKTOK_ANALYTICS_URL = "https://www.tiktok.com/tiktokstudio/analytics"
+TIKTOK_FOLLOWERS_URL = "https://www.tiktok.com/tiktokstudio/analytics/followers"
+STUDIO_SOURCE = "TikTok Studio"
+
+# TikTok Studio overview (2026): each card is "<label>" then its value on the next line
+# ("--" when the period has no activity), then the change vs the previous period.
+_OVERVIEW_LABELS = {
+    "Video views": "video_views",
+    "Profile views": "profile_views",
+    "Likes": "likes",
+    "Comments": "comments",
+    "Shares": "shares",
+    "Est. rewards": "est_rewards_usd",
+}
+_FOLLOWER_LABELS = {"Total followers": "total_followers", "Net followers": "net_followers"}
+_PERIODS = (7, 28, 60, 365)
+
+_LINES_JS = r"""() => document.body.innerText.split('\n').map(s => s.trim()).filter(Boolean)"""
 TIKTOK_CREATOR_URL = "https://www.tiktok.com/creator#/analytics"
 TIKTOK_LOGIN_URL = "https://www.tiktok.com/login"
 
@@ -91,23 +108,15 @@ class TikTokWorker(PlatformWorker):
                 log.warning("tiktok_login_timeout")
                 return False
 
-            # Navigate to analytics to verify
-            await page.goto(TIKTOK_ANALYTICS_URL, wait_until="domcontentloaded", timeout=settings.browser_timeout)
-            await page.wait_for_timeout(3000)
-
             if "/login" in page.url:
                 log.warning("tiktok_login_failed")
                 return False
 
-            username = await self._detect_username(page)
-            if username:
-                self._username = username
-                await self._browser.save_context("tiktok", account_id)
-                log.info("tiktok_login_success", username=username)
-                return True
-
-            log.warning("tiktok_login_failed_no_username")
-            return False
+            # Signed in once past /login. The username is a nice-to-have for the account
+            # name; failing to read it must not undo a good sign-in.
+            self._username = await self._detect_username(page) or account_id
+            log.info("tiktok_login_success", username=self._username)
+            return True
         finally:
             await page.close()
 
@@ -115,6 +124,13 @@ class TikTokWorker(PlatformWorker):
         """Extract the TikTok username from the analytics page."""
         try:
             username = await page.evaluate("""() => {
+                // Signed-in nav: the "Profile" link points at /@<username>
+                const nav = document.querySelector('a[data-e2e="nav-profile"][href*="/@"], a[href^="/@"][data-e2e*="profile"]');
+                if (nav) {
+                    const m = nav.getAttribute('href').match(/@([\\w.]+)/);
+                    if (m) return m[1];
+                }
+
                 // Check for username in profile/header area
                 const profileEl = document.querySelector(
                     '[class*="username"], [data-e2e="username"], [class*="UniqueId"]'
@@ -144,51 +160,78 @@ class TikTokWorker(PlatformWorker):
     async def extract_account_metrics(
         self, account_id: str, date_start: str, date_end: str
     ) -> ExtractionResult:
+        """TikTok Studio Overview (views, profile views, likes, comments, shares, rewards) for
+        the preset period nearest the request, plus total and net followers."""
+        from datetime import date, datetime, timedelta
+        from zoneinfo import ZoneInfo
+
         result = ExtractionResult(platform="tiktok", account_id=account_id)
         ctx = await self._browser.get_context("tiktok", account_id)
         page = await ctx.new_page()
 
         try:
-            resp = await page.goto(
-                TIKTOK_ANALYTICS_URL,
-                wait_until="domcontentloaded",
-                timeout=settings.browser_timeout,
-            )
-
+            resp = await page.goto(TIKTOK_ANALYTICS_URL, wait_until="domcontentloaded",
+                                   timeout=settings.browser_timeout)
             challenge = await detect_challenge(page, resp)
             if challenge.detected:
                 result.errors.append(f"Challenge detected: {challenge.challenge_type.value}")
                 return result
-
-            await page.wait_for_timeout(3000)
-
-            if "/login" in page.url:
-                result.errors.append("Not authenticated — login required")
+            try:
+                await page.get_by_text("Video views", exact=True).first.wait_for(timeout=25000)
+            except PlaywrightTimeout:
+                if "/login" in page.url:
+                    result.errors.append("Not signed in to TikTok. Click Re-authenticate and log in once.")
+                else:
+                    result.errors.append(f"TikTok Studio analytics did not load ({page.url})")
                 return result
 
-            # Try the Overview tab
-            overview_tab = page.locator('[data-e2e="analytics-overview-tab"], a:has-text("Overview")').first
             try:
-                if await overview_tab.is_visible(timeout=3000):
-                    await overview_tab.click()
-                    await page.wait_for_timeout(2000)
-            except (PlaywrightTimeout, Exception):
+                span = (date.fromisoformat(date_end) - date.fromisoformat(date_start)).days + 1
+            except ValueError:
+                span = 7
+            days = await self._select_period(page, min(_PERIODS, key=lambda d: abs(d - span)))
+            try:  # the rewards card renders after the others; not every account has it
+                await page.get_by_text("Est. rewards", exact=True).first.wait_for(timeout=8000)
+            except PlaywrightTimeout:
                 pass
+            await page.wait_for_timeout(1500)
 
-            # Extract overview metrics from DOM
-            dom_metrics = await self._extract_overview_dom(page, account_id, date_start, date_end)
-            if dom_metrics:
-                result.metrics = dom_metrics
-                result.extraction_method = "dom"
-                result.success = True
-                log.info("tiktok_overview_extracted", metrics=len(dom_metrics))
-            else:
-                result.warnings.append("No overview metrics could be extracted")
+            # Studio does not print the dates; its presets end on the last finished day.
+            today = datetime.now(ZoneInfo(settings.app_timezone)).date()
+            period_end = today - timedelta(days=1)
+            period_start = period_end - timedelta(days=days - 1)
+            source = f"{STUDIO_SOURCE} Overview (Last {days} days)"
 
+            lines = await page.evaluate(_LINES_JS)
+            for name, value in parse_studio_cards(lines, _OVERVIEW_LABELS).items():
+                result.metrics.append(self._metric(account_id, name, value, period_start, period_end, source))
+
+            await page.goto(TIKTOK_FOLLOWERS_URL, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+            try:
+                await page.get_by_text("Total followers", exact=True).first.wait_for(timeout=20000)
+                cards = parse_studio_cards(await page.evaluate(_LINES_JS), _FOLLOWER_LABELS)
+                if "total_followers" in cards:  # "All time": a snapshot as of today
+                    result.metrics.append(self._metric(account_id, "total_followers", cards["total_followers"],
+                                                       today, today, f"{STUDIO_SOURCE} Followers"))
+                if "net_followers" in cards:
+                    result.metrics.append(self._metric(account_id, "net_followers", cards["net_followers"],
+                                                       period_start, period_end,
+                                                       f"{STUDIO_SOURCE} Followers (Last {days} days)"))
+            except PlaywrightTimeout:
+                result.warnings.append("TikTok Studio followers page did not load")
+
+            if not result.metrics:
+                result.errors.append("TikTok Studio loaded but no numbers could be read")
+                return result
+            if "--" in lines:
+                result.warnings.append('TikTok shows "--" when a period has no activity; those are stored as 0.')
+            result.extraction_method = "dom"
+            result.success = True
+            log.info("tiktok_studio_extracted", metrics=len(result.metrics), days=days)
             return result
 
         except PlaywrightTimeout:
-            result.errors.append("Timeout navigating to TikTok Analytics")
+            result.errors.append("Timeout navigating to TikTok Studio")
             return result
         except Exception as e:
             result.errors.append(f"Extraction error: {str(e)}")
@@ -196,6 +239,39 @@ class TikTokWorker(PlatformWorker):
             return result
         finally:
             await page.close()
+
+    async def _select_period(self, page: Page, days: int) -> int:
+        """Pick "Last N days" in Studio's period menu. Returns the period actually shown."""
+        current = page.get_by_text(re.compile(r"^Last \d+ days$")).first
+        try:
+            shown = int(re.search(r"\d+", await current.inner_text(timeout=5000)).group())
+            if shown == days:
+                return days
+            await current.click(timeout=5000)
+            await page.wait_for_timeout(1200)
+            await page.get_by_text(f"Last {days} days", exact=True).last.click(timeout=5000)
+            await page.wait_for_timeout(5000)
+            return days
+        except Exception as e:
+            await page.keyboard.press("Escape")
+            log.warning("tiktok_period_select_failed", days=days, error=str(e)[:150])
+            try:
+                return int(re.search(r"\d+", await current.inner_text(timeout=2000)).group())
+            except Exception:
+                return 7
+
+    @staticmethod
+    def _metric(account_id: str, name: str, value: float, start, end, source: str) -> dict[str, Any]:
+        return {
+            "platform": "tiktok",
+            "account_id": account_id,
+            "metric_name": name,
+            "metric_value": value,
+            "date_start": start.isoformat(),
+            "date_end": end.isoformat(),
+            "source_dashboard": source,
+            "extraction_method": "dom",
+        }
 
     async def _extract_overview_dom(
         self, page: Page, account_id: str, date_start: str, date_end: str
@@ -558,3 +634,18 @@ class TikTokWorker(PlatformWorker):
             return replacements[name]
         name = re.sub(r"[^a-z0-9]+", "_", name)
         return name.strip("_")
+
+
+def parse_studio_cards(lines: list[str], labels: dict[str, str]) -> dict[str, float]:
+    """Read "<label>" followed by its value line. "--" (no activity in the period) is 0;
+    "$1.23" rewards drop the currency sign. Unparsable values are skipped."""
+    out: dict[str, float] = {}
+    for i, line in enumerate(lines[:-1]):
+        name = labels.get(" ".join(line.split()))  # split() also folds non-breaking spaces
+        if not name or name in out:
+            continue
+        raw = lines[i + 1].replace("$", "").strip()
+        value = 0.0 if raw in ("--", "-") else TikTokWorker._parse_metric_value(raw)
+        if value is not None:
+            out[name] = value
+    return out

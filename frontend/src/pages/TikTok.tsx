@@ -64,6 +64,11 @@ export default function TikTok() {
     return m?.metric_value ?? null
   }
 
+  function period(name: string): string {
+    const m = metrics.find((m) => m.metric_name === name)
+    return m ? `${m.date_start} → ${m.date_end}` : '—'
+  }
+
   function formatNum(val: number | null): string {
     if (val === null) return '—'
     if (Math.abs(val) >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
@@ -137,28 +142,28 @@ export default function TikTok() {
             <StatCard
               title="Video Views"
               value={formatNum(metricValue('video_views'))}
-              subtitle="Last 7 days"
+              subtitle={period('video_views')}
               icon={Eye}
               color="text-pink-500"
             />
             <StatCard
               title="Likes"
               value={formatNum(metricValue('likes'))}
-              subtitle="Last 7 days"
+              subtitle={period('likes')}
               icon={Heart}
               color="text-red-500"
             />
             <StatCard
               title="Comments"
               value={formatNum(metricValue('comments'))}
-              subtitle="Last 7 days"
+              subtitle={period('comments')}
               icon={MessageCircle}
               color="text-blue-500"
             />
             <StatCard
               title="Followers"
-              value={formatNum(metricValue('followers_change'))}
-              subtitle="Net change"
+              value={formatNum(metricValue('total_followers'))}
+              subtitle={`Net ${formatNum(metricValue('net_followers'))} · ${period('net_followers')}`}
               icon={Users}
               color="text-green-500"
             />
