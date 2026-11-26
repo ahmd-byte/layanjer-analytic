@@ -177,7 +177,7 @@ export const api = {
     accounts: () => fetchJson<YouTubeAccount[]>('/facebook/accounts'),
     verifyAuth: () => postJson<{ authenticated: boolean; page_id: string | null; page_name: string | null }>('/facebook/verify-auth', {}),
     login: (accountId: string = 'default') => postJson<{ status: string; page_id?: string; page_name?: string; message: string }>('/facebook/login', { account_id: accountId }),
-    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/facebook/extract', params),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[]; sheets?: { synced: boolean; error?: string | null } }>('/facebook/extract', params),
     metrics: (params?: { account_id?: string; metric_name?: string }) => {
       const qs = new URLSearchParams()
       if (params?.account_id) qs.set('account_id', params.account_id)
@@ -192,7 +192,7 @@ export const api = {
     accounts: () => fetchJson<YouTubeAccount[]>('/instagram/accounts'),
     verifyAuth: () => postJson<{ authenticated: boolean; username: string | null }>('/instagram/verify-auth', {}),
     login: (accountId: string = 'default') => postJson<{ status: string; username?: string; message: string }>('/instagram/login', { account_id: accountId }),
-    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/instagram/extract', params),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[]; sheets?: { synced: boolean; error?: string | null } }>('/instagram/extract', params),
     metrics: (params?: { account_id?: string; metric_name?: string }) => {
       const qs = new URLSearchParams()
       if (params?.account_id) qs.set('account_id', params.account_id)
@@ -207,7 +207,7 @@ export const api = {
     accounts: () => fetchJson<YouTubeAccount[]>('/tiktok/accounts'),
     verifyAuth: () => postJson<{ authenticated: boolean; username: string | null }>('/tiktok/verify-auth', {}),
     login: (accountId: string = 'default') => postJson<{ status: string; username?: string; message: string }>('/tiktok/login', { account_id: accountId }),
-    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/tiktok/extract', params),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[]; sheets?: { synced: boolean; error?: string | null } }>('/tiktok/extract', params),
     metrics: (params?: { account_id?: string; metric_name?: string }) => {
       const qs = new URLSearchParams()
       if (params?.account_id) qs.set('account_id', params.account_id)
@@ -222,7 +222,7 @@ export const api = {
     accounts: () => fetchJson<YouTubeAccount[]>('/youtube/accounts'),
     verifyAuth: () => postJson<{ authenticated: boolean; channel_id: string | null }>('/youtube/verify-auth', {}),
     login: (accountId: string = 'default') => postJson<{ status: string; channel_id?: string; message: string }>('/youtube/login', { account_id: accountId }),
-    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[] }>('/youtube/extract', params),
+    extract: (params: { account_id: string; date_start: string; date_end: string; job_type?: string }) => postJson<{ run_id: string; status: string; metrics_extracted: number; errors: string[]; warnings: string[]; sheets?: { synced: boolean; error?: string | null } }>('/youtube/extract', params),
     metrics: (params?: { account_id?: string; metric_name?: string }) => {
       const qs = new URLSearchParams()
       if (params?.account_id) qs.set('account_id', params.account_id)

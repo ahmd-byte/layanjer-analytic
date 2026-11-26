@@ -81,3 +81,24 @@ class TestParsePostDescription:
 
     def test_empty(self):
         assert parse_post_description("") == {"likes": None, "comments": None, "caption": None}
+
+
+def test_sheet_rows_carry_post_details_in_local_time():
+    from layan_engine.sheets.sync import _CONTENT_HEADERS, _content_rows
+
+    db = _session()
+    save_result(db, "instagram", "default", _result(10, 5), run_id=None)
+    db.commit()
+    rows = _content_rows(db, db.query(ContentMetric).order_by(ContentMetric.metric_name).all())
+    row = dict(zip(_CONTENT_HEADERS, rows[0]))
+    assert row["Title"] == "First reel" and row["Type"] == "reel"
+    assert row["Metric"] == "comments" and row["Value"] == 3
+    assert row["Published"] == "2026-11-26 01:00:57"  # 17:00 UTC shown as MYT (UTC+8)
+    assert row["URL"].endswith("/reel/ABC123/")
+
+
+def test_sync_after_pull_skips_when_sheets_not_configured():
+    from layan_engine.sheets.sync import sync_after_pull
+
+    out = sync_after_pull(_session())  # conftest blanks the Sheets settings
+    assert out["synced"] is False and out["error"] is None

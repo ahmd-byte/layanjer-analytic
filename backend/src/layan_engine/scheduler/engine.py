@@ -133,7 +133,7 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
     """
     import uuid
 
-    from layan_engine.storage.models import AccountMetric, ExtractionRun
+    from layan_engine.storage.models import ExtractionRun
 
     platform = schedule.platform
     account_id = schedule.account_id
@@ -186,22 +186,10 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
             return "failed", 0, run.error_message
 
         metrics_saved = 0
-        if result.success and result.metrics:
-            for m in result.metrics:
-                acct_metric = AccountMetric(
-                    platform=platform,
-                    account_id=account_id,
-                    metric_name=m["metric_name"],
-                    metric_value=m["metric_value"],
-                    date_start=m["date_start"],
-                    date_end=m["date_end"],
-                    source_dashboard=m.get("source_dashboard", ""),
-                    extraction_method=m.get("extraction_method", ""),
-                    extraction_run_id=run.id,
-                    validation_status="extracted",
-                )
-                db.merge(acct_metric)
-                metrics_saved += 1
+        if result.success:
+            from layan_engine.storage.metrics import save_result
+
+            metrics_saved = save_result(db, platform, account_id, result, run.id)
 
         run.status = "completed" if result.success else "failed"
         run.metrics_extracted = metrics_saved
@@ -210,6 +198,11 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
         run.completed_at = _utcnow()
         run.duration_seconds = (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         db.commit()
+
+        if result.success:
+            from layan_engine.sheets.sync import sync_after_pull
+
+            sync_after_pull(db)
 
         return run.status, metrics_saved, run.error_message
 

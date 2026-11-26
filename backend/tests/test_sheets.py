@@ -105,7 +105,8 @@ class TestHeaders:
 
     def test_content_headers(self):
         assert "Content ID" in _CONTENT_HEADERS
-        assert len(_CONTENT_HEADERS) == 7
+        assert len(_CONTENT_HEADERS) == 12
+        assert "Title" in _CONTENT_HEADERS and "Published" in _CONTENT_HEADERS
 
     def test_summary_headers(self):
         assert "Latest Value" in _SUMMARY_HEADERS

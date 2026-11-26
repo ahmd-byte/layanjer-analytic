@@ -12,9 +12,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from layan_engine.config import settings
 from layan_engine.logging import get_logger
 from layan_engine.sheets.client import SheetsClient, SheetsClientError
-from layan_engine.storage.models import AccountMetric, ContentMetric, SyncQueue
+from layan_engine.storage.models import AccountMetric, Content, ContentMetric, SyncQueue
 
 log = get_logger(__name__)
 
@@ -34,10 +35,15 @@ _CONTENT_HEADERS = [
     "Platform",
     "Account ID",
     "Content ID",
+    "Type",
+    "Title",
     "Metric",
     "Value",
     "Date Start",
     "Date End",
+    "Published",
+    "URL",
+    "Extracted At",
 ]
 
 _SUMMARY_HEADERS = [
@@ -155,21 +161,12 @@ class SheetsSyncEngine:
 
     def _sync_account_metrics(self, db: Session, result: SyncResult) -> int:
         try:
-            metrics = db.query(AccountMetric).order_by(AccountMetric.extracted_at.desc()).limit(5000).all()
-            rows = [
-                [
-                    m.platform,
-                    m.account_id,
-                    m.metric_name,
-                    m.metric_value if m.metric_value is not None else "",
-                    m.date_start,
-                    m.date_end,
-                    m.source_dashboard or "",
-                    m.extraction_method or "",
-                    m.extracted_at.isoformat() if m.extracted_at else "",
-                ]
-                for m in metrics
-            ]
+            metrics = (
+                db.query(AccountMetric)
+                .order_by(AccountMetric.platform, AccountMetric.date_end.desc(), AccountMetric.metric_name)
+                .all()
+            )
+            rows = [_account_row(m) for m in metrics]
             ws = self._client.get_or_create_worksheet("Account Metrics")
             return self._client.clear_and_write(ws, _ACCOUNT_HEADERS, rows)
         except Exception as e:
@@ -178,19 +175,12 @@ class SheetsSyncEngine:
 
     def _sync_content_metrics(self, db: Session, result: SyncResult) -> int:
         try:
-            metrics = db.query(ContentMetric).order_by(ContentMetric.extracted_at.desc()).limit(5000).all()
-            rows = [
-                [
-                    m.platform,
-                    m.account_id,
-                    m.content_id,
-                    m.metric_name,
-                    m.metric_value if m.metric_value is not None else "",
-                    m.date_start,
-                    m.date_end,
-                ]
-                for m in metrics
-            ]
+            metrics = (
+                db.query(ContentMetric)
+                .order_by(ContentMetric.platform, ContentMetric.date_end.desc(), ContentMetric.content_id)
+                .all()
+            )
+            rows = _content_rows(db, metrics)
             ws = self._client.get_or_create_worksheet("Content Metrics")
             return self._client.clear_and_write(ws, _CONTENT_HEADERS, rows)
         except Exception as e:
@@ -226,7 +216,7 @@ class SheetsSyncEngine:
                     r.metric_name,
                     r.metric_value if r.metric_value is not None else "",
                     f"{r.date_start} → {r.date_end}",
-                    str(r.last_updated) if r.last_updated else "",
+                    _local(r.last_updated),
                 ]
                 for r in latest
             ]
@@ -238,28 +228,11 @@ class SheetsSyncEngine:
 
     def _fetch_account_rows_by_id(self, db: Session, ids: list[int]) -> list[list[Any]]:
         metrics = db.query(AccountMetric).filter(AccountMetric.id.in_(ids)).all()
-        return [
-            [
-                m.platform, m.account_id, m.metric_name,
-                m.metric_value if m.metric_value is not None else "",
-                m.date_start, m.date_end,
-                m.source_dashboard or "", m.extraction_method or "",
-                m.extracted_at.isoformat() if m.extracted_at else "",
-            ]
-            for m in metrics
-        ]
+        return [_account_row(m) for m in metrics]
 
     def _fetch_content_rows_by_id(self, db: Session, ids: list[int]) -> list[list[Any]]:
         metrics = db.query(ContentMetric).filter(ContentMetric.id.in_(ids)).all()
-        return [
-            [
-                m.platform, m.account_id, m.content_id,
-                m.metric_name,
-                m.metric_value if m.metric_value is not None else "",
-                m.date_start, m.date_end,
-            ]
-            for m in metrics
-        ]
+        return _content_rows(db, metrics)
 
     def _mark_queue_synced(self, db: Session):
         pending = db.query(SyncQueue).filter(SyncQueue.status == "pending").all()
@@ -268,3 +241,67 @@ class SheetsSyncEngine:
             q.status = "synced"
             q.synced_at = now
         db.commit()
+
+
+def sync_after_pull(db: Session) -> dict[str, Any]:
+    """Mirror the database into the Google Sheet after a pull. Never raises.
+
+    A full rewrite (not appends) keeps the sheet identical to the database: a re-pull that
+    updates a value can never leave a duplicate row behind.
+    """
+    engine = SheetsSyncEngine()
+    if not engine.is_configured:
+        return {"synced": False, "error": None, "skipped": "Google Sheets not configured"}
+    try:
+        r = engine.full_sync(db)
+    except Exception as e:  # a Sheets outage must not fail the pull itself
+        log.warning("sheets_sync_after_pull_failed", error=str(e)[:200])
+        return {"synced": False, "error": str(e)[:300]}
+    return {
+        "synced": r.success,
+        "rows": r.account_metrics_synced + r.content_metrics_synced,
+        "error": "; ".join(r.errors) or None,
+    }
+
+
+def _local(ts: Any) -> str:
+    """Timestamp as app-local wall time (MYT), which is what people reading the sheet expect."""
+    from zoneinfo import ZoneInfo
+
+    if not ts:
+        return ""
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(ZoneInfo(settings.app_timezone)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _account_row(m: AccountMetric) -> list[Any]:
+    return [
+        m.platform, m.account_id, m.metric_name,
+        m.metric_value if m.metric_value is not None else "",
+        m.date_start, m.date_end,
+        m.source_dashboard or "", m.extraction_method or "",
+        _local(m.extracted_at),
+    ]
+
+
+def _content_rows(db: Session, metrics: list[ContentMetric]) -> list[list[Any]]:
+    ids = {m.content_id for m in metrics}
+    items = {c.content_id: c for c in db.query(Content).filter(Content.content_id.in_(ids)).all()} if ids else {}
+    rows = []
+    for m in metrics:
+        c = items.get(m.content_id)
+        rows.append([
+            m.platform, m.account_id, m.content_id,
+            c.content_type if c else "",
+            (c.title or "").replace("\n", " ")[:300] if c else "",
+            m.metric_name,
+            m.metric_value if m.metric_value is not None else "",
+            m.date_start, m.date_end,
+            _local(c.published_at) if c else "",
+            (c.content_url or "") if c else "",
+            _local(m.extracted_at),
+        ])
+    return rows

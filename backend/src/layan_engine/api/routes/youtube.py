@@ -159,6 +159,14 @@ async def youtube_extract(req: ExtractionRequest, db: Session = Depends(get_db))
         )
         db.commit()
 
+        sheets = {"synced": False, "error": None}
+        if result.success:
+            from layan_engine.sheets.sync import sync_after_pull
+
+            sheets = sync_after_pull(db)
+            if sheets.get("error"):
+                result.warnings.append(f"Google Sheet not updated: {sheets['error']}")
+
         return {
             "run_id": run_id,
             "status": run.status,
@@ -166,6 +174,7 @@ async def youtube_extract(req: ExtractionRequest, db: Session = Depends(get_db))
             "extraction_method": result.extraction_method,
             "errors": result.errors,
             "warnings": result.warnings,
+            "sheets": sheets,
         }
 
     except Exception as e:

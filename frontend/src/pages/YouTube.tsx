@@ -50,7 +50,7 @@ export default function YouTube() {
       const res = await api.youtube.extract({ account_id: accountId, date_start: weekAgo, date_end: today })
       setStatus({
         running: false,
-        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})`,
+        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})${res.sheets?.synced ? ' · Google Sheet updated' : ''}${res.warnings?.length ? ' — ' + res.warnings.join(' ') : ''}`,
         error: res.errors.length ? res.errors.join('; ') : null,
       })
       if (res.status === 'completed') loadData()
