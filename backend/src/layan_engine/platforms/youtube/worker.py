@@ -193,8 +193,15 @@ class YouTubeWorker(PlatformWorker):
             if challenge.detected:
                 result.errors.append(f"Challenge detected: {challenge.challenge_type.value}")
                 return result
+            if "accounts.google.com" in page.url:
+                result.errors.append("YouTube session expired — click Connect Account to sign in again")
+                return result
 
-            await page.wait_for_timeout(3000)
+            try:
+                await page.wait_for_selector("ytcp-simple-metric-view-model", timeout=25000)
+            except PlaywrightTimeout:
+                log.warning("youtube_metric_cards_not_rendered", url=page.url)
+            await page.wait_for_timeout(1500)
             await self._select_period(page, date_start, date_end)
 
             # Try native CSV export first
@@ -361,10 +368,10 @@ class YouTubeWorker(PlatformWorker):
             return
         days = min(_PERIOD_CHIPS, key=lambda d: abs(d - span))
         try:
-            await page.get_by_text(_PERIOD_CHIPS[days], exact=True).first.click(timeout=3000)
+            await page.get_by_text(_PERIOD_CHIPS[days], exact=True).first.click(timeout=8000)
             await page.wait_for_timeout(4000)
-        except Exception:
-            log.warning("youtube_period_select_failed", days=days)
+        except Exception as e:
+            log.warning("youtube_period_select_failed", days=days, error=str(e).splitlines()[0][:200])
 
     async def _extract_studio_metric_models(
         self, page: Page, account_id: str, date_start: str, date_end: str

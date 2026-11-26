@@ -64,6 +64,11 @@ export default function YouTube() {
     return m?.metric_value ?? null
   }
 
+  function period(name: string): string {
+    const m = metrics.find((m) => m.metric_name === name)
+    return m ? `${m.date_start} → ${m.date_end}` : '—'
+  }
+
   function formatNum(val: number | null): string {
     if (val === null) return '—'
     if (Math.abs(val) >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
@@ -138,29 +143,29 @@ export default function YouTube() {
             <StatCard
               title="Views"
               value={formatNum(metricValue('views'))}
-              subtitle="Last 7 days"
+              subtitle={period('views')}
               icon={Eye}
               color="text-red-500"
             />
             <StatCard
               title="Watch Time (hrs)"
               value={formatNum(metricValue('watch_time_hours'))}
-              subtitle="Last 7 days"
+              subtitle={period('watch_time_hours')}
               icon={Clock}
               color="text-blue-500"
             />
             <StatCard
-              title="Subscribers"
+              title="Subscriber Change"
               value={formatNum(metricValue('subscribers_change'))}
-              subtitle="Net change"
-              icon={Users}
+              subtitle={period('subscribers_change')}
+              icon={TrendingUp}
               color="text-green-500"
             />
             <StatCard
-              title="CTR"
-              value={metricValue('ctr') !== null ? metricValue('ctr')!.toFixed(1) + '%' : '—'}
-              subtitle="Impressions click-through"
-              icon={TrendingUp}
+              title="Total Subscribers"
+              value={formatNum(metricValue('total_subscribers'))}
+              subtitle="Current"
+              icon={Users}
               color="text-amber-500"
             />
           </div>

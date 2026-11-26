@@ -114,6 +114,13 @@ class InstagramWorker(PlatformWorker):
         """Extract the Instagram username from the page."""
         try:
             username = await page.evaluate("""() => {
+                // Logged-in user's own avatar is the first "<name>'s profile picture" image (nav bar)
+                const avatar = document.querySelector('img[alt$="\\'s profile picture"]');
+                if (avatar) {
+                    const m = avatar.alt.match(/^([\\w.]{1,30})'s profile picture$/);
+                    if (m) return m[1];
+                }
+
                 // Profile link in navigation
                 const profileLink = document.querySelector(
                     'a[href*="/"][role="link"] span[dir="auto"]'
@@ -171,6 +178,14 @@ class InstagramWorker(PlatformWorker):
 
             if "/accounts/login" in page.url:
                 result.errors.append("Not authenticated — login required")
+                return result
+
+            # Instagram serves this error page (not a redirect) when the account has no Insights.
+            if "couldn't load" in (await page.title()).lower():
+                result.errors.append(
+                    "Instagram Insights unavailable for this account — switch it to a Professional "
+                    "(Business or Creator) account in the Instagram app"
+                )
                 return result
 
             # Try Overview section first

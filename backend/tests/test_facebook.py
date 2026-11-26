@@ -126,3 +126,17 @@ def test_facebook_audience_metrics_empty(client):
     resp = client.get("/api/facebook/audience-metrics")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+class TestParseDurationSeconds:
+    def test_seconds_only(self):
+        from layan_engine.platforms.facebook.worker import FacebookWorker
+        assert FacebookWorker._parse_duration_seconds("0s") == 0.0
+
+    def test_hours_minutes_seconds(self):
+        from layan_engine.platforms.facebook.worker import FacebookWorker
+        assert FacebookWorker._parse_duration_seconds("1h 2m 3s") == 3723.0
+
+    def test_plain_number_is_not_a_duration(self):
+        from layan_engine.platforms.facebook.worker import FacebookWorker
+        assert FacebookWorker._parse_duration_seconds("12") is None

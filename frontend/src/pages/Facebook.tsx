@@ -64,6 +64,11 @@ export default function Facebook() {
     return m?.metric_value ?? null
   }
 
+  function period(name: string): string {
+    const m = metrics.find((m) => m.metric_name === name)
+    return m ? `${m.date_start} → ${m.date_end}` : '—'
+  }
+
   function formatNum(val: number | null): string {
     if (val === null) return '—'
     if (Math.abs(val) >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
@@ -135,30 +140,30 @@ export default function Facebook() {
           {/* Metric cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
-              title="Page Reach"
-              value={formatNum(metricValue('page_reach'))}
-              subtitle="Last 7 days"
+              title="Views"
+              value={formatNum(metricValue('views'))}
+              subtitle={period('views')}
               icon={Eye}
               color="text-blue-500"
             />
             <StatCard
-              title="Post Engagement"
-              value={formatNum(metricValue('post_engagement'))}
-              subtitle="Last 7 days"
+              title="Content Interactions"
+              value={formatNum(metricValue('content_interactions'))}
+              subtitle={period('content_interactions')}
               icon={Heart}
               color="text-red-500"
             />
             <StatCard
-              title="New Followers"
-              value={formatNum(metricValue('new_followers'))}
-              subtitle="Net change"
+              title="Net Follows"
+              value={formatNum(metricValue('net_follows'))}
+              subtitle={period('net_follows')}
               icon={Users}
               color="text-green-500"
             />
             <StatCard
-              title="Page Visits"
-              value={formatNum(metricValue('page_visits'))}
-              subtitle="Last 7 days"
+              title="Facebook Visits"
+              value={formatNum(metricValue('facebook_visits'))}
+              subtitle={period('facebook_visits')}
               icon={MessageCircle}
               color="text-amber-500"
             />

@@ -23,6 +23,32 @@ FB_BASE = "https://www.facebook.com"
 FB_LOGIN = f"{FB_BASE}/login"
 FB_BUSINESS_SUITE = "https://business.facebook.com"
 FB_INSIGHTS_PATTERN = "/insights"
+FB_PAGES_YOU_MANAGE = f"{FB_BASE}/pages/?category=your_pages"
+FB_SUITE_OVERVIEW = f"{FB_BUSINESS_SUITE}/latest/insights/overview?asset_id={{asset_id}}"
+
+_MANAGED_PAGE_JS = r"""() => {
+  const a = document.querySelector('a[href*="asset_id="]');
+  const m = a && a.getAttribute('href').match(/asset_id=(\d+)/);
+  const name = [...document.querySelectorAll('a[href*="profile.php?id="]')]
+    .map(x => x.innerText.trim()).find(Boolean);
+  return {asset_id: m ? m[1] : null, name: name || null};
+}"""
+
+# Business Suite (2026) renders each metric as: label line, a zero-width-space line, value line.
+_SUITE_METRICS_JS = r"""() => {
+  const lines = document.body.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+  const start = lines.indexOf('Performance');
+  const end = lines.findIndex((s, i) => i > start && /^Recent (ads|content)$/.test(s));
+  const out = [];
+  for (let i = Math.max(start, 1); i < (end > 0 ? end : lines.length) - 1; i++) {
+    if (lines[i] !== '​') continue;
+    const label = lines[i - 1], value = lines[i + 1];
+    if (!label || label === '​' || /^From (non-)?followers$/.test(label)) continue;
+    out.push({label, value});
+  }
+  const range = lines.find(s => /^Last \d+ days: /.test(s)) || null;
+  return {metrics: out, range};
+}"""
 
 
 class FacebookWorker(PlatformWorker):
@@ -110,6 +136,8 @@ class FacebookWorker(PlatformWorker):
             if page_info:
                 self._page_id = page_info.get("id", account_id)
                 self._page_name = page_info.get("name")
+            if not self._page_name:
+                await self._resolve_managed_page(page)
 
             await self._browser.save_context("facebook", account_id)
             log.info("facebook_login_success", page_id=self._page_id)
@@ -152,7 +180,29 @@ class FacebookWorker(PlatformWorker):
         page = await ctx.new_page()
 
         try:
-            # Try Meta Business Suite insights first
+            managed = await self._resolve_managed_page(page)
+            if managed and managed.get("asset_id"):
+                resp = await page.goto(
+                    FB_SUITE_OVERVIEW.format(asset_id=managed["asset_id"]),
+                    wait_until="domcontentloaded",
+                    timeout=settings.browser_timeout,
+                )
+                challenge = await detect_challenge(page, resp)
+                if challenge.detected:
+                    result.errors.append(f"Challenge detected: {challenge.challenge_type.value}")
+                    return result
+                await page.wait_for_timeout(8000)
+                await self._select_suite_period(page, date_start, date_end)
+                suite_metrics = await self._extract_suite_overview(page, account_id, date_start, date_end)
+                if suite_metrics:
+                    result.metrics = suite_metrics
+                    result.extraction_method = "dom"
+                    result.success = True
+                    log.info("facebook_suite_extracted", page=managed.get("name"), metrics=len(suite_metrics))
+                    return result
+                result.warnings.append("Business Suite overview loaded but no metrics were parsed")
+
+            # Older Business Suite entry point (redirects to a business picker in 2026)
             insights_url = f"{FB_BUSINESS_SUITE}/insights"
             resp = await page.goto(
                 insights_url,
@@ -207,6 +257,90 @@ class FacebookWorker(PlatformWorker):
             return result
         finally:
             await page.close()
+
+    async def _resolve_managed_page(self, page: Page) -> dict[str, str | None] | None:
+        """First Page the logged-in user manages: Business Suite asset_id and display name."""
+        try:
+            await page.goto(FB_PAGES_YOU_MANAGE, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+            await page.wait_for_timeout(5000)
+            found = await page.evaluate(_MANAGED_PAGE_JS)
+            if found.get("name"):
+                self._page_name = found["name"]
+            return found
+        except Exception as e:
+            log.warning("facebook_managed_page_lookup_failed", error=str(e))
+            return None
+
+    async def _select_suite_period(self, page: Page, date_start: str, date_end: str) -> None:
+        from datetime import date
+
+        try:
+            span = (date.fromisoformat(date_end) - date.fromisoformat(date_start)).days + 1
+        except ValueError:
+            return
+        days = min((7, 28, 90), key=lambda d: abs(d - span))
+        picker = page.get_by_role("button", name=re.compile(r"^Last \d+ days: ")).first
+        try:
+            if not await picker.is_enabled(timeout=3000):
+                # Overview's range control is aria-disabled (fixed to 28 days) as of Nov 2026.
+                log.info("facebook_period_fixed_by_page", requested_days=days)
+                return
+            await picker.click(timeout=4000)
+            await page.wait_for_timeout(1500)
+            await page.get_by_text(f"Last {days} days", exact=True).first.click(timeout=4000)
+            await page.wait_for_timeout(1500)
+            update = page.get_by_role("button", name=re.compile(r"^(Update|Apply)$"))
+            if await update.count():
+                await update.first.click(timeout=3000)
+            await page.wait_for_timeout(6000)
+        except Exception:
+            await page.keyboard.press("Escape")
+            log.warning("facebook_period_select_failed", days=days)
+
+    async def _extract_suite_overview(
+        self, page: Page, account_id: str, date_start: str, date_end: str
+    ) -> list[dict[str, Any]]:
+        from datetime import datetime
+
+        found = await page.evaluate(_SUITE_METRICS_JS)
+        shown = re.search(r"(\d{1,2} \w{3} \d{4}) - (\d{1,2} \w{3} \d{4})", found.get("range") or "")
+        if shown:
+            try:
+                date_start, date_end = (datetime.strptime(d, "%d %b %Y").date().isoformat() for d in shown.groups())
+            except ValueError:
+                pass
+
+        metrics: list[dict[str, Any]] = []
+        for card in found.get("metrics", []):
+            label, raw = card["label"], card["value"]
+            name = self._normalize_metric_name(label)
+            seconds = self._parse_duration_seconds(raw)
+            if seconds is not None:
+                name, value = f"{name}_seconds", seconds
+            else:
+                value = self._parse_metric_value(raw)
+            if not name or value is None or any(m["metric_name"] == name for m in metrics):
+                continue
+            metrics.append({
+                "platform": "facebook",
+                "account_id": account_id,
+                "metric_name": name,
+                "native_metric_name": label,
+                "metric_value": value,
+                "date_start": date_start,
+                "date_end": date_end,
+                "source_dashboard": f"Meta Business Suite Insights ({self._page_name or 'Page'})",
+                "extraction_method": "dom",
+            })
+        return metrics
+
+    @staticmethod
+    def _parse_duration_seconds(text: str) -> float | None:
+        m = re.fullmatch(r"\s*(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?\s*", text or "")
+        if not m or not any(m.groups()):
+            return None
+        h, mi, s = (int(g or 0) for g in m.groups())
+        return float(h * 3600 + mi * 60 + s)
 
     async def _try_classic_insights(
         self, page: Page, account_id: str, date_start: str, date_end: str
