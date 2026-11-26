@@ -26,12 +26,44 @@ FB_INSIGHTS_PATTERN = "/insights"
 FB_PAGES_YOU_MANAGE = f"{FB_BASE}/pages/?category=your_pages"
 FB_SUITE_OVERVIEW = f"{FB_BUSINESS_SUITE}/latest/insights/overview?asset_id={{asset_id}}"
 
-_MANAGED_PAGE_JS = r"""() => {
-  const a = document.querySelector('a[href*="asset_id="]');
-  const m = a && a.getAttribute('href').match(/asset_id=(\d+)/);
-  const name = [...document.querySelectorAll('a[href*="profile.php?id="]')]
-    .map(x => x.innerText.trim()).find(Boolean);
-  return {asset_id: m ? m[1] : null, name: name || null};
+FB_ME = f"{FB_BASE}/me"
+
+# Lists the Pages on "Pages you manage" and, for each wanted name, the Page's Business Suite
+# asset_id (from the card's own asset_id link, else the Page id in its profile.php link).
+_MANAGED_PAGES_JS = r"""(targets) => {
+  const norm = s => (s || '').trim().toLowerCase();
+  const anchors = [...document.querySelectorAll('a[href]')];
+  const pageLinks = anchors.filter(a => /profile\.php\?id=\d+/.test(a.href) && a.innerText.trim());
+  const pages = [...new Set(pageLinks.map(a => a.innerText.trim()))];
+  const first = document.querySelector('a[href*="asset_id="]');
+  const firstAsset = first ? (first.href.match(/asset_id=(\d+)/) || [])[1] || null : null;
+  const matches = [];
+  for (const t of targets) {
+    const a = anchors.find(x => norm(x.innerText) === norm(t));
+    if (!a) continue;
+    const idm = a.href.match(/profile\.php\?id=(\d+)/);
+    let asset = null;
+    for (let el = a.parentElement; el; el = el.parentElement) {
+      const ids = new Set([...el.querySelectorAll('a[href*="profile.php?id="]')]
+        .map(x => (x.href.match(/id=(\d+)/) || [])[1]));
+      if (ids.size > 1) break;  // walked past this Page's card
+      const link = el.querySelector('a[href*="asset_id="]');
+      if (link) { asset = (link.href.match(/asset_id=(\d+)/) || [])[1] || null; break; }
+    }
+    matches.push({target: t, name: a.innerText.trim(), asset_id: asset || (idm ? idm[1] : null)});
+  }
+  return {pages, first: {name: pages[0] || null, asset_id: firstAsset}, matches};
+}"""
+
+_PROFILE_JS = r"""() => {
+  const m = location.href.match(/profile\.php\?id=(\d+)/);
+  // 2026 profiles have no name heading (the only <h1> is "Chats"); the name is the line
+  // right above the "N friends" / "N followers" count.
+  const main = document.querySelector('[role="main"]');
+  const lines = (main ? main.innerText : '').split('\n').map(s => s.trim()).filter(Boolean);
+  const i = lines.findIndex(s => /^[\d.,]+[KM]?\s+(friends?|followers?)\b/i.test(s));
+  const title = document.title.replace(/^\(\d+\+?\)\s*/, '').split(' | ')[0].trim();
+  return {id: m ? m[1] : null, name: (i > 0 ? lines[i - 1] : null) || (title && title !== 'Facebook' ? title : null)};
 }"""
 
 # Business Suite (2026) renders each metric as: label line, a zero-width-space line, value line.
@@ -181,6 +213,9 @@ class FacebookWorker(PlatformWorker):
 
         try:
             managed = await self._resolve_managed_page(page)
+            if managed and managed.get("error"):
+                result.errors.append(managed["error"])
+                return result
             if managed and managed.get("asset_id"):
                 resp = await page.goto(
                     FB_SUITE_OVERVIEW.format(asset_id=managed["asset_id"]),
@@ -199,6 +234,18 @@ class FacebookWorker(PlatformWorker):
                     result.extraction_method = "dom"
                     result.success = True
                     log.info("facebook_suite_extracted", page=managed.get("name"), metrics=len(suite_metrics))
+                    return result
+                if managed.get("kind") == "profile":
+                    result.errors.append(
+                        f"No insights for the profile '{managed['name']}'. Facebook only shows insights for "
+                        "Pages and for profiles with professional mode on. Turn on professional mode "
+                        "(facebook.com/professional_dashboard) or create the Page, then pull again."
+                    )
+                    return result
+                if _parse_targets(settings.facebook_target_pages):
+                    # A named target loaded but showed nothing; the legacy flow below would pick
+                    # whichever business Meta defaults to, which may be a different Page.
+                    result.errors.append(f"Business Suite showed no metrics for '{managed.get('name')}'")
                     return result
                 result.warnings.append("Business Suite overview loaded but no metrics were parsed")
 
@@ -259,17 +306,36 @@ class FacebookWorker(PlatformWorker):
             await page.close()
 
     async def _resolve_managed_page(self, page: Page) -> dict[str, str | None] | None:
-        """First Page the logged-in user manages: Business Suite asset_id and display name."""
+        """The Page (or professional profile) to pull: the first FACEBOOK_TARGET_PAGES name found,
+        else, when no targets are set, the first Page the user manages.
+
+        Returns {"name", "asset_id", "kind"} or {"error": ...} when no target exists.
+        """
+        targets = _parse_targets(settings.facebook_target_pages)
         try:
             await page.goto(FB_PAGES_YOU_MANAGE, wait_until="domcontentloaded", timeout=settings.browser_timeout)
             await page.wait_for_timeout(5000)
-            found = await page.evaluate(_MANAGED_PAGE_JS)
-            if found.get("name"):
-                self._page_name = found["name"]
-            return found
+            found = await page.evaluate(_MANAGED_PAGES_JS, targets)
+            profile: dict[str, str | None] = {}
+            if targets:
+                await page.goto(FB_ME, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+                try:
+                    await page.get_by_text(re.compile(r"^[\d.,]+[KM]?\s+(friends?|followers?)\b", re.I)).first.wait_for(
+                        timeout=15000
+                    )
+                except PlaywrightTimeout:
+                    pass
+                profile = await page.evaluate(_PROFILE_JS)
         except Exception as e:
             log.warning("facebook_managed_page_lookup_failed", error=str(e))
             return None
+
+        chosen = _choose_target(targets, found, profile)
+        if chosen.get("name"):
+            self._page_name = chosen["name"]
+        log.info("facebook_target_resolved", target=chosen.get("name"), kind=chosen.get("kind"),
+                 managed_pages=len(found.get("pages", [])))
+        return chosen
 
     async def _select_suite_period(self, page: Page, date_start: str, date_end: str) -> None:
         from datetime import date
@@ -718,3 +784,33 @@ class FacebookWorker(PlatformWorker):
             return replacements[name]
         name = re.sub(r"[^a-z0-9]+", "_", name)
         return name.strip("_")
+
+
+def _parse_targets(raw: str) -> list[str]:
+    return [t.strip() for t in (raw or "").split(",") if t.strip()]
+
+
+def _choose_target(targets: list[str], found: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    """Pick the first wanted name that exists: a managed Page, or the signed-in profile itself.
+
+    With no targets, falls back to the first managed Page.
+    """
+    if not targets:
+        first = found.get("first") or {}
+        return {"name": first.get("name"), "asset_id": first.get("asset_id"), "kind": "page"}
+
+    pages = {m["target"].lower(): m for m in found.get("matches", []) if m.get("asset_id")}
+    profile_name = (profile.get("name") or "").strip().lower()
+    for t in targets:
+        if t.lower() in pages:
+            m = pages[t.lower()]
+            return {"name": m["name"], "asset_id": m["asset_id"], "kind": "page"}
+        if profile_name and t.lower() == profile_name and profile.get("id"):
+            return {"name": profile["name"], "asset_id": profile["id"], "kind": "profile"}
+
+    managed = ", ".join(found.get("pages", [])) or "none"
+    return {"error": (
+        f"None of the Facebook targets ({', '.join(targets)}) were found. "
+        f"Pages this login manages: {managed}. Create the Page or add it to this login, "
+        "or change FACEBOOK_TARGET_PAGES in .env."
+    )}

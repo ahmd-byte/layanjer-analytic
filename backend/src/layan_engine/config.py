@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     browser_profiles_dir: Path = Field(default=_ROOT / "browser_profiles")
     browser_timeout: int = 30000
 
+    # Facebook: comma-separated Page/profile names to pull, in order of preference.
+    # Empty = the first Page the signed-in user manages.
+    facebook_target_pages: str = ""
+
     # Backend
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000

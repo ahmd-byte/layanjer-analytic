@@ -5,7 +5,7 @@ import tempfile
 import pytest
 from fastapi.testclient import TestClient
 
-from layan_engine.platforms.facebook.worker import FacebookWorker
+from layan_engine.platforms.facebook.worker import FacebookWorker, _choose_target, _parse_targets
 
 
 # ── Unit tests for metric parsing ─────────────────────────────────
@@ -140,3 +140,32 @@ class TestParseDurationSeconds:
     def test_plain_number_is_not_a_duration(self):
         from layan_engine.platforms.facebook.worker import FacebookWorker
         assert FacebookWorker._parse_duration_seconds("12") is None
+
+
+class TestChooseTarget:
+    FOUND = {
+        "pages": ["Other Page", "Brand Page"],
+        "first": {"name": "Other Page", "asset_id": "111"},
+        "matches": [{"target": "Brand Page", "name": "Brand Page", "asset_id": "222"}],
+    }
+    PROFILE = {"id": "999", "name": "Jane Doe"}
+
+    def test_parse_targets(self):
+        assert _parse_targets(" Brand Page, Jane Doe ,,") == ["Brand Page", "Jane Doe"]
+        assert _parse_targets("") == []
+
+    def test_no_targets_uses_first_managed_page(self):
+        assert _choose_target([], self.FOUND, {}) == {"name": "Other Page", "asset_id": "111", "kind": "page"}
+
+    def test_prefers_first_target_that_exists(self):
+        chosen = _choose_target(["Missing", "brand page", "Jane Doe"], self.FOUND, self.PROFILE)
+        assert chosen == {"name": "Brand Page", "asset_id": "222", "kind": "page"}
+
+    def test_falls_back_to_signed_in_profile(self):
+        chosen = _choose_target(["Missing", "Jane Doe"], self.FOUND, self.PROFILE)
+        assert chosen == {"name": "Jane Doe", "asset_id": "999", "kind": "profile"}
+
+    def test_never_picks_an_unlisted_page(self):
+        chosen = _choose_target(["Missing"], self.FOUND, self.PROFILE)
+        assert "error" in chosen
+        assert "Other Page" in chosen["error"]  # lists what exists, but does not pull it
