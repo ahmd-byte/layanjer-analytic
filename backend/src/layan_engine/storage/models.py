@@ -14,11 +14,34 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """Stores UTC without an offset (SQLite has no timezone type) and returns aware UTC.
+
+    Plain DateTime(timezone=True) comes back naive from SQLite, so .isoformat() had no
+    offset and browsers read the UTC time as local time (8 hours off in Malaysia).
+    Naive values written in are taken to be UTC already.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class Base(DeclarativeBase):
@@ -34,10 +57,10 @@ class Account(Base):
     account_name: Mapped[str] = mapped_column(String(255), nullable=False)
     account_url: Mapped[Optional[str]] = mapped_column(String(1024))
     auth_status: Mapped[str] = mapped_column(String(30), default="pending")
-    last_auth_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_auth_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("platform", "account_id", name="uq_account_platform"),
@@ -54,10 +77,10 @@ class Content(Base):
     content_type: Mapped[str] = mapped_column(String(50), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(Text)
     content_url: Mapped[Optional[str]] = mapped_column(String(1024))
-    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("platform", "content_id", name="uq_content_platform"),
@@ -97,8 +120,8 @@ class AccountMetric(Base):
     extraction_method: Mapped[Optional[str]] = mapped_column(String(50))
     extraction_run_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("extraction_runs.id"))
     validation_status: Mapped[str] = mapped_column(String(30), default="pending")
-    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    extracted_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -125,8 +148,8 @@ class ContentMetric(Base):
     extraction_method: Mapped[Optional[str]] = mapped_column(String(50))
     extraction_run_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("extraction_runs.id"))
     validation_status: Mapped[str] = mapped_column(String(30), default="pending")
-    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    extracted_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -150,7 +173,7 @@ class AudienceMetric(Base):
     date_start: Mapped[str] = mapped_column(String(10), nullable=False)
     date_end: Mapped[str] = mapped_column(String(10), nullable=False)
     extraction_run_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("extraction_runs.id"))
-    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    extracted_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -178,10 +201,10 @@ class ExtractionRun(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     workflow_version: Mapped[Optional[int]] = mapped_column(Integer)
     checkpoint: Mapped[Optional[str]] = mapped_column(Text)
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
     steps: Mapped[list[ExtractionStep]] = relationship(back_populates="run")
 
@@ -197,8 +220,8 @@ class ExtractionStep(Base):
     error_category: Mapped[Optional[str]] = mapped_column(String(50))
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
 
     run: Mapped[ExtractionRun] = relationship(back_populates="steps")
@@ -214,8 +237,8 @@ class SyncQueue(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    synced_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
 
 class AIUsage(Base):
@@ -229,7 +252,7 @@ class AIUsage(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     estimated_cost: Mapped[Optional[float]] = mapped_column(Float)
     extraction_run_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("extraction_runs.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
 
 class Schedule(Base):
@@ -243,13 +266,13 @@ class Schedule(Base):
     interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
     lookback_days: Mapped[int] = mapped_column(Integer, default=7)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     last_status: Mapped[Optional[str]] = mapped_column(String(30))
     last_error: Mapped[Optional[str]] = mapped_column(Text)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("platform", "account_id", "job_type", name="uq_schedule_platform_account"),
@@ -265,8 +288,8 @@ class WorkflowVersion(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     definition: Mapped[str] = mapped_column(Text, nullable=False)
-    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
     __table_args__ = (
         UniqueConstraint("workflow_id", "version", name="uq_workflow_version"),

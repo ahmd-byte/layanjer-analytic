@@ -33,3 +33,18 @@ def test_missing_name_falls_back_to_account_id():
     db = _session()
     acct = record_authenticated_account(db, "facebook", "default", None)
     assert acct.account_name == "default"
+
+
+def test_timestamps_come_back_as_aware_utc():
+    """SQLite drops offsets; without this the browser showed UTC times as local (8h off in MYT)."""
+    from datetime import datetime, timedelta, timezone
+
+    db = _session()
+    acct = record_authenticated_account(db, "youtube", "default", "UCabc")
+    myt = timezone(timedelta(hours=8))
+    acct.last_auth_at = datetime(2026, 11, 26, 19, 47, tzinfo=myt)
+    db.commit()
+    db.expire_all()
+    loaded = db.query(Account).one().last_auth_at
+    assert loaded.tzinfo is not None
+    assert loaded.isoformat() == "2026-11-26T11:47:00+00:00"
