@@ -5,7 +5,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from layan_engine.storage.database import get_db
-from layan_engine.storage.models import AccountMetric, ContentMetric, ExtractionRun
+from layan_engine.storage.models import AccountMetric, Content, ContentMetric, ExtractionRun
 
 router = APIRouter()
 
@@ -190,4 +190,43 @@ def get_extraction_history(
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         }
         for r in runs
+    ]
+
+
+@router.get("/posts")
+def get_posts(
+    platform: str,
+    account_id: str | None = None,
+    limit: int = Query(default=50, le=500),
+    db: Session = Depends(get_db),
+):
+    """Each post/video with its newest reading of every metric, newest posts first."""
+    q = db.query(Content).filter(Content.platform == platform)
+    if account_id:
+        q = q.filter(Content.account_id == account_id)
+    items = q.order_by(Content.published_at.desc().nullslast(), Content.id.desc()).limit(limit).all()
+    if not items:
+        return []
+
+    latest: dict[str, dict[str, dict]] = {}
+    rows = (
+        db.query(ContentMetric)
+        .filter(ContentMetric.platform == platform, ContentMetric.content_id.in_([c.content_id for c in items]))
+        .order_by(ContentMetric.date_end.asc(), ContentMetric.extracted_at.asc())
+        .all()
+    )
+    for r in rows:  # ascending, so the last write per metric is the newest
+        latest.setdefault(r.content_id, {})[r.metric_name] = {"value": r.metric_value, "as_of": r.date_end}
+
+    return [
+        {
+            "content_id": c.content_id,
+            "content_type": c.content_type,
+            "title": c.title,
+            "content_url": c.content_url,
+            "published_at": c.published_at.isoformat() if c.published_at else None,
+            "metrics": {k: v["value"] for k, v in latest.get(c.content_id, {}).items()},
+            "as_of": max((v["as_of"] for v in latest.get(c.content_id, {}).values()), default=None),
+        }
+        for c in items
     ]

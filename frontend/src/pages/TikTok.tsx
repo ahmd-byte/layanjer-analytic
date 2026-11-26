@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Eye, Heart, MessageCircle, Share2, Users, Music2, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
+import { Eye, Heart, MessageCircle, Users, Music2, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import MetricLineChart from '../components/MetricLineChart'
 import { useTrends } from '../hooks/useTrends'

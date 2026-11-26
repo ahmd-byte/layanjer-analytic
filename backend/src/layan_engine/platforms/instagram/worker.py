@@ -24,6 +24,36 @@ IG_LOGIN = f"{IG_BASE}/accounts/login/"
 IG_INSIGHTS = f"{IG_BASE}/accounts/insights/"
 IG_PROFESSIONAL = f"{IG_BASE}/accounts/professional_dashboard/"
 
+# How many of the newest posts to read when an account has no Insights.
+PUBLIC_RECENT_POSTS = 12
+PUBLIC_SOURCE = "Instagram profile (public)"
+
+_PROFILE_JS = r"""() => {
+  const header = document.querySelector('header');
+  const lines = (header ? header.innerText : '').split('\n').map(s => s.trim()).filter(Boolean);
+  const counts = {};
+  for (const s of lines) {
+    const m = s.match(/^([\d.,]+[KMB]?)\s+(posts?|followers?|following)$/i);
+    if (m) counts[m[2].toLowerCase().replace(/s$/, '')] = m[1];  // post | follower | following
+  }
+  // Exact follower count lives in the title attribute ("684,391,415") when the label is rounded.
+  const titled = header && header.querySelector('span[title]');
+  if (titled && /^[\d,]+$/.test(titled.title)) counts.follower = titled.title;
+  const posts = [...document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]')]
+    .map(a => a.getAttribute('href')).filter((h, i, all) => all.indexOf(h) === i);
+  return {counts, posts};
+}"""
+
+_POST_JS = r"""() => ({
+  og: (document.querySelector('meta[property="og:description"]') || {}).content || '',
+  time: (document.querySelector('time[datetime]') || {getAttribute: () => null}).getAttribute('datetime'),
+})"""
+
+# Reels tab: each reel tile shows its play count as its only text.
+_REEL_VIEWS_JS = r"""() => Object.fromEntries([...document.querySelectorAll('a[href*="/reel/"]')]
+  .map(a => [(a.getAttribute('href').match(/\/reel\/([\w-]+)/) || [])[1], a.innerText.trim().split('\n')[0]])
+  .filter(([code, views]) => code && /^[\d.,]+[KMB]?$/.test(views)))"""
+
 
 class InstagramWorker(PlatformWorker):
     platform = "instagram"
@@ -181,11 +211,9 @@ class InstagramWorker(PlatformWorker):
                 return result
 
             # Instagram serves this error page (not a redirect) when the account has no Insights.
+            # Fall back to what the profile itself shows so non-Professional accounts still work.
             if "couldn't load" in (await page.title()).lower():
-                result.errors.append(
-                    "Instagram Insights unavailable for this account — switch it to a Professional "
-                    "(Business or Creator) account in the Instagram app"
-                )
+                await self._extract_public_profile(page, account_id, result)
                 return result
 
             # Try Overview section first
@@ -217,6 +245,103 @@ class InstagramWorker(PlatformWorker):
             return result
         finally:
             await page.close()
+
+    async def _extract_public_profile(self, page: Page, account_id: str, result: ExtractionResult) -> None:
+        """Read what any signed-in account can see on its own profile: follower/following/post
+        counts and likes, comments, reel plays and date of the newest posts.
+
+        Counts are lifetime totals, so they are stored as a snapshot dated today.
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        today = datetime.now(ZoneInfo(settings.app_timezone)).date().isoformat()
+        username = self._username if self._username not in (None, "", "default") else None
+        if not username:
+            await page.goto(IG_BASE + "/", wait_until="domcontentloaded", timeout=settings.browser_timeout)
+            await page.wait_for_timeout(4000)
+            username = await self._detect_username(page)
+        if not username:
+            result.errors.append("Instagram Insights unavailable and the profile username could not be found")
+            return
+        self._username = username
+
+        await page.goto(f"{IG_BASE}/{username}/", wait_until="domcontentloaded", timeout=settings.browser_timeout)
+        try:
+            await page.wait_for_selector("header", timeout=15000)
+        except PlaywrightTimeout:
+            pass
+        await page.wait_for_timeout(2500)
+        profile = await page.evaluate(_PROFILE_JS)
+
+        names = {"follower": "followers", "following": "following", "post": "posts"}
+        for key, name in names.items():
+            value = self._parse_metric_value(profile["counts"].get(key, ""))
+            if value is not None:
+                result.metrics.append(self._snapshot_metric(account_id, name, value, today))
+        if not result.metrics:
+            result.errors.append(f"Could not read the counts on instagram.com/{username}")
+            return
+
+        posts = [p for p in profile["posts"] if f"/{username}/" in p or p.startswith(("/p/", "/reel/"))]
+        posts = posts[:PUBLIC_RECENT_POSTS]
+        reel_views: dict[str, str] = {}
+        if any("/reel/" in p for p in posts):
+            await page.goto(f"{IG_BASE}/{username}/reels/", wait_until="domcontentloaded",
+                            timeout=settings.browser_timeout)
+            await page.wait_for_timeout(5000)
+            reel_views = await page.evaluate(_REEL_VIEWS_JS)
+
+        for href in posts:
+            code = re.search(r"/(?:p|reel)/([\w-]+)", href)
+            if not code:
+                continue
+            try:
+                await page.goto(IG_BASE + href, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+                await page.wait_for_timeout(3500)
+                found = await page.evaluate(_POST_JS)
+            except PlaywrightTimeout:
+                result.warnings.append(f"Timed out reading post {code.group(1)}")
+                continue
+            parsed = parse_post_description(found.get("og", ""))
+            is_reel = "/reel/" in href
+            metrics = {"likes": parsed["likes"], "comments": parsed["comments"]}
+            if is_reel:
+                metrics["views"] = self._parse_metric_value(reel_views.get(code.group(1), ""))
+            result.content_records.append({
+                "content_id": code.group(1),
+                "content_type": "reel" if is_reel else "post",
+                "title": parsed["caption"],
+                "content_url": f"{IG_BASE}/{'reel' if is_reel else 'p'}/{code.group(1)}/",
+                "published_at": found.get("time"),
+                "metrics": metrics,
+                "date_start": today,
+                "date_end": today,
+                "source_dashboard": PUBLIC_SOURCE,
+                "extraction_method": "dom_public",
+            })
+
+        result.extraction_method = "dom_public"
+        result.success = True
+        result.warnings.append(
+            "Instagram Insights are off for this account (not a Professional account), so only "
+            "public profile numbers were pulled: followers, following, posts, and likes/comments/plays per post."
+        )
+        log.info("instagram_public_profile_extracted", username=username,
+                 metrics=len(result.metrics), posts=len(result.content_records))
+
+    @staticmethod
+    def _snapshot_metric(account_id: str, name: str, value: float, day: str) -> dict[str, Any]:
+        return {
+            "platform": "instagram",
+            "account_id": account_id,
+            "metric_name": name,
+            "metric_value": value,
+            "date_start": day,
+            "date_end": day,
+            "source_dashboard": PUBLIC_SOURCE,
+            "extraction_method": "dom_public",
+        }
 
     async def _extract_overview_dom(
         self, page: Page, account_id: str, date_start: str, date_end: str
@@ -610,3 +735,23 @@ class InstagramWorker(PlatformWorker):
             return replacements[name]
         name = re.sub(r"[^a-z0-9]+", "_", name)
         return name.strip("_")
+
+
+_OG_COUNT = r"([\d.,]+[KMB]?)"
+
+
+def parse_post_description(og: str) -> dict[str, Any]:
+    """Parse a post page's og:description, e.g.
+    '265K likes, 5,251 comments - instagram on November 24, 2026: "caption..."'.
+
+    Likes are missing when the owner hides them. Large counts are rounded by Instagram (265K).
+    """
+    def count(word: str) -> float | None:
+        m = re.search(_OG_COUNT + r"\s+" + word + r"s?\b", og or "", re.I)
+        return InstagramWorker._parse_metric_value(m.group(1)) if m else None
+
+    caption = None
+    m = re.search(r' on \w+ \d{1,2}, \d{4}:\s*"(.*)', og or "", re.S)
+    if m:
+        caption = m.group(1).rstrip().removesuffix('"').strip()[:500] or None
+    return {"likes": count("like"), "comments": count("comment"), "caption": caption}

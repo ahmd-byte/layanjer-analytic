@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Eye, Users, Heart, MessageCircle, MousePointer, Camera, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
+import { Eye, Users, Heart, MousePointer, Camera, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import MetricLineChart from '../components/MetricLineChart'
+import PostsTable from '../components/PostsTable'
 import { useTrends } from '../hooks/useTrends'
-import { api, type YouTubeMetric, type YouTubeAccount } from '../services/api'
+import { api, type YouTubeMetric, type YouTubeAccount, type PostRow } from '../services/api'
 
 type ExtractionStatus = { running: boolean; lastResult: string | null; error: string | null }
 
@@ -12,6 +13,7 @@ export default function Instagram() {
   const [metrics, setMetrics] = useState<YouTubeMetric[]>([])
   const [status, setStatus] = useState<ExtractionStatus>({ running: false, lastResult: null, error: null })
   const [loading, setLoading] = useState(true)
+  const [posts, setPosts] = useState<PostRow[]>([])
 
   useEffect(() => {
     loadData()
@@ -20,12 +22,14 @@ export default function Instagram() {
   async function loadData() {
     setLoading(true)
     try {
-      const [accts, mets] = await Promise.all([
+      const [accts, mets, rows] = await Promise.all([
         api.instagram.accounts().catch(() => [] as YouTubeAccount[]),
         api.instagram.metrics().catch(() => [] as YouTubeMetric[]),
+        api.posts('instagram').catch(() => [] as PostRow[]),
       ])
       setAccounts(accts)
       setMetrics(mets)
+      setPosts(rows)
     } finally {
       setLoading(false)
     }
@@ -50,7 +54,7 @@ export default function Instagram() {
       const res = await api.instagram.extract({ account_id: accountId, date_start: weekAgo, date_end: today })
       setStatus({
         running: false,
-        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})`,
+        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})${res.warnings?.length ? ' — ' + res.warnings.join(' ') : ''}`,
         error: res.errors.length ? res.errors.join('; ') : null,
       })
       if (res.status === 'completed') loadData()
@@ -75,6 +79,10 @@ export default function Instagram() {
   const trendData = useTrends('instagram', metricNames)
   const hasData = metrics.length > 0
   const hasAccounts = accounts.length > 0
+  // No Insights (non-Professional account): only public profile numbers were pulled.
+  const isPublic = metricValue('accounts_reached') === null && metricValue('followers') !== null
+  const postSum = (key: string) => posts.reduce((s, p) => s + (p.metrics[key] ?? 0), 0)
+  const asOf = (name: string) => metrics.find((m) => m.metric_name === name)?.date_end ?? '—'
 
   return (
     <div className="p-8">
@@ -121,8 +129,8 @@ export default function Instagram() {
           <h3 className="text-lg font-semibold text-slate-700 mb-2">No Instagram data yet</h3>
           <p className="text-sm text-slate-500 mb-4">
             {hasAccounts
-              ? 'Account connected. Click "Pull Analytics" to extract data from Instagram Insights.'
-              : 'Click "Connect Account" to log in to Instagram and start collecting analytics. Requires a Professional (Business or Creator) account.'}
+              ? 'Account connected. Click "Pull Analytics" to extract data from Instagram.'
+              : 'Click "Connect Account" to log in to Instagram. A Professional (Business or Creator) account gives full Insights; other accounts get profile numbers only.'}
           </p>
           {!hasAccounts && (
             <code className="bg-slate-100 px-3 py-1.5 rounded text-sm text-slate-700">
@@ -133,6 +141,14 @@ export default function Instagram() {
       ) : (
         <>
           {/* Metric cards */}
+          {isPublic ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <StatCard title="Followers" value={formatNum(metricValue('followers'))} subtitle={`As of ${asOf('followers')}`} icon={Users} color="text-blue-500" />
+              <StatCard title="Following" value={formatNum(metricValue('following'))} subtitle={`As of ${asOf('following')}`} icon={Eye} color="text-purple-500" />
+              <StatCard title="Posts" value={formatNum(metricValue('posts'))} subtitle={`As of ${asOf('posts')}`} icon={Camera} color="text-amber-500" />
+              <StatCard title="Likes (recent posts)" value={formatNum(postSum('likes'))} subtitle={`${posts.length} newest posts`} icon={Heart} color="text-pink-500" />
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
               title="Accounts Reached"
@@ -163,6 +179,12 @@ export default function Instagram() {
               color="text-amber-500"
             />
           </div>
+          )}
+
+          <PostsTable
+            posts={posts}
+            columns={[{ key: 'views', label: 'Plays' }, { key: 'likes', label: 'Likes' }, { key: 'comments', label: 'Comments' }]}
+          />
 
           {/* Trend chart */}
           {trendData.length > 0 && (

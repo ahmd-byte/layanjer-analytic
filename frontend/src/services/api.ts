@@ -97,8 +97,19 @@ export interface YouTubeAccount {
   last_auth_at: string | null
 }
 
+export interface PostRow {
+  content_id: string
+  content_type: string
+  title: string | null
+  content_url: string | null
+  published_at: string | null
+  metrics: Record<string, number | null>
+  as_of: string | null
+}
+
 export const api = {
   health: () => fetchJson<HealthStatus>('/health'),
+  posts: (platform: string) => fetchJson<PostRow[]>(`/analytics/posts?platform=${encodeURIComponent(platform)}`),
   systemStatus: () => fetchJson<SystemStatus>('/system/status'),
   accounts: () => fetchJson<AccountInfo[]>('/accounts/'),
   extractionRuns: (params?: { platform?: string; status?: string }) => {

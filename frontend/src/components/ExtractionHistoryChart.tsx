@@ -59,7 +59,7 @@ export default function ExtractionHistoryChart({ data, title, height = 260 }: Ex
           <Tooltip
             contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}
             labelStyle={{ fontWeight: 600, color: '#1e293b' }}
-            formatter={(value: number, name: string) => [value, name === 'metrics' ? 'Extracted' : 'Failed']}
+            formatter={(value, name) => [value, name === 'metrics' ? 'Extracted' : 'Failed']}
           />
           <Bar dataKey="metrics" name="Extracted" radius={[4, 4, 0, 0]}>
             {chartData.map((entry, i) => (

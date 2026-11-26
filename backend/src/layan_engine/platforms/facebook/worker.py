@@ -55,6 +55,45 @@ _MANAGED_PAGES_JS = r"""(targets) => {
   return {pages, first: {name: pages[0] || null, asset_id: firstAsset}, matches};
 }"""
 
+PUBLIC_SOURCE = "Facebook profile (public)"
+PUBLIC_RECENT_POSTS = 12
+
+# Profile/Page timeline: header counts, then per post the numbers Facebook puts in its
+# accessibility labels ("Comment on X's post, 34 comments", "Share X's post, 19 shares",
+# "Like: 64 people"). Labels inside comment threads (nested articles) are skipped.
+_TIMELINE_JS = r"""(limit) => {
+  const main = document.querySelector('[role="main"]');
+  const lines = (main ? main.innerText : '').split('\n').map(s => s.trim()).filter(Boolean);
+  const counts = {};
+  for (const s of lines.slice(0, 15)) {
+    const m = s.match(/^([\d.,]+[KMB]?)\s+(friends?|followers?|following)$/i);
+    if (m && !(m[2].toLowerCase() in counts)) counts[m[2].toLowerCase().replace(/s$/, '')] = m[1];
+  }
+  const posts = [...document.querySelectorAll('[role="main"] [aria-posinset]')];
+  const roots = posts.length ? posts
+    : [...document.querySelectorAll('[role="main"] [role="article"]')].filter(a => !a.parentElement.closest('[role="article"]'));
+  const out = [];
+  for (const p of roots.slice(0, limit)) {
+    const own = e => { const a = e.closest('[role="article"]'); return !a || a === p || a.contains(p); };
+    const labels = [...p.querySelectorAll('[aria-label]')].filter(own).map(e => e.getAttribute('aria-label'));
+    const pick = re => { for (const l of labels) { const m = l.match(re); if (m) return m[1]; } return null; };
+    const href = [...p.querySelectorAll('a[href]')].map(a => a.href)
+      .find(h => /\/(reel|posts|videos)\/|story_fbid=|pcb\.\d+|fbid=\d+/.test(h)) || '';
+    const id = (href.match(/\/reel\/(\d+)|\/posts\/([\w]+)|story_fbid=(\d+)|pcb\.(\d+)|\/videos\/(?:[\w.]+\/)?(\d+)|fbid=(\d+)/) || [])
+      .slice(1).find(Boolean) || null;
+    const msg = p.querySelector('[data-ad-preview="message"], [data-ad-comet-preview="message"]');
+    out.push({
+      id, href: href.split('?')[0],
+      reactions: pick(/^(?:Like|All reactions):?\s*([\d.,]+[KMB]?)/i) || pick(/^([\d.,]+[KMB]?) reactions?; see who reacted/i),
+      comments: pick(/^Comment on .*?, ([\d.,]+[KMB]?) comments?$/i),
+      shares: pick(/^Share .*?, ([\d.,]+[KMB]?) shares?$/i),
+      text: msg ? msg.innerText.trim().slice(0, 500) : null,
+      video: /\/(reel|videos)\//.test(href),
+    });
+  }
+  return {counts, posts: out};
+}"""
+
 _PROFILE_JS = r"""() => {
   const m = location.href.match(/profile\.php\?id=(\d+)/);
   // 2026 profiles have no name heading (the only <h1> is "Chats"); the name is the line
@@ -236,10 +275,9 @@ class FacebookWorker(PlatformWorker):
                     log.info("facebook_suite_extracted", page=managed.get("name"), metrics=len(suite_metrics))
                     return result
                 if managed.get("kind") == "profile":
-                    result.errors.append(
-                        f"No insights for the profile '{managed['name']}'. Facebook only shows insights for "
-                        "Pages and for profiles with professional mode on. Turn on professional mode "
-                        "(facebook.com/professional_dashboard) or create the Page, then pull again."
+                    # No professional mode = no insights; read what the profile itself shows.
+                    await self._extract_public_timeline(
+                        page, account_id, result, f"{FB_BASE}/profile.php?id={managed['asset_id']}"
                     )
                     return result
                 if _parse_targets(settings.facebook_target_pages):
@@ -399,6 +437,67 @@ class FacebookWorker(PlatformWorker):
                 "extraction_method": "dom",
             })
         return metrics
+
+    async def _extract_public_timeline(
+        self, page: Page, account_id: str, result: ExtractionResult, url: str
+    ) -> None:
+        """Friends/followers and per-post reactions, comments and shares from a profile timeline.
+
+        Used when the profile has no insights (professional mode off). Counts are lifetime
+        totals, so they are stored as a snapshot dated today.
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        today = datetime.now(ZoneInfo(settings.app_timezone)).date().isoformat()
+        await page.goto(url, wait_until="domcontentloaded", timeout=settings.browser_timeout)
+        await page.wait_for_timeout(6000)
+        for _ in range(4):  # timeline loads posts as you scroll
+            await page.mouse.wheel(0, 2500)
+            await page.wait_for_timeout(1500)
+        found = await page.evaluate(_TIMELINE_JS, PUBLIC_RECENT_POSTS)
+
+        for key, name in (("friend", "friends"), ("follower", "followers"), ("following", "following")):
+            value = self._parse_metric_value(found["counts"].get(key, ""))
+            if value is not None:
+                result.metrics.append({
+                    "platform": "facebook", "account_id": account_id, "metric_name": name,
+                    "metric_value": value, "date_start": today, "date_end": today,
+                    "source_dashboard": f"{PUBLIC_SOURCE} — {self._page_name}",
+                    "extraction_method": "dom_public",
+                })
+        if not result.metrics:
+            result.errors.append(f"Could not read the friends/followers count on {url}")
+            return
+
+        for post in found["posts"]:
+            if not post.get("id"):
+                continue
+            result.content_records.append({
+                "content_id": post["id"],
+                "content_type": "video" if post.get("video") else "post",
+                "title": post.get("text"),
+                "content_url": post.get("href"),
+                "metrics": {
+                    "reactions": self._parse_metric_value(post.get("reactions") or "0"),
+                    "comments": self._parse_metric_value(post.get("comments") or "0"),
+                    "shares": self._parse_metric_value(post.get("shares") or "0"),
+                },
+                "date_start": today,
+                "date_end": today,
+                "source_dashboard": f"{PUBLIC_SOURCE} — {self._page_name}",
+                "extraction_method": "dom_public",
+            })
+
+        result.extraction_method = "dom_public"
+        result.success = True
+        result.warnings.append(
+            f"'{self._page_name}' has no insights (professional mode is off), so only profile numbers "
+            "were pulled: friends/followers and reactions/comments/shares per post. Turn on "
+            "professional mode for views and reach."
+        )
+        log.info("facebook_public_timeline_extracted", target=self._page_name,
+                 metrics=len(result.metrics), posts=len(result.content_records))
 
     @staticmethod
     def _parse_duration_seconds(text: str) -> float | None:

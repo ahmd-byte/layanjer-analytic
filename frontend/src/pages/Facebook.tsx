@@ -2,8 +2,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Eye, Users, Heart, MessageCircle, ThumbsUp, RefreshCw, LogIn, AlertCircle } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import MetricLineChart from '../components/MetricLineChart'
+import PostsTable from '../components/PostsTable'
 import { useTrends } from '../hooks/useTrends'
-import { api, type YouTubeMetric, type YouTubeAccount } from '../services/api'
+import { api, type YouTubeMetric, type YouTubeAccount, type PostRow } from '../services/api'
 
 type ExtractionStatus = { running: boolean; lastResult: string | null; error: string | null }
 
@@ -12,6 +13,7 @@ export default function Facebook() {
   const [metrics, setMetrics] = useState<YouTubeMetric[]>([])
   const [status, setStatus] = useState<ExtractionStatus>({ running: false, lastResult: null, error: null })
   const [loading, setLoading] = useState(true)
+  const [posts, setPosts] = useState<PostRow[]>([])
 
   useEffect(() => {
     loadData()
@@ -20,12 +22,14 @@ export default function Facebook() {
   async function loadData() {
     setLoading(true)
     try {
-      const [accts, mets] = await Promise.all([
+      const [accts, mets, rows] = await Promise.all([
         api.facebook.accounts().catch(() => [] as YouTubeAccount[]),
         api.facebook.metrics().catch(() => [] as YouTubeMetric[]),
+        api.posts('facebook').catch(() => [] as PostRow[]),
       ])
       setAccounts(accts)
       setMetrics(mets)
+      setPosts(rows)
     } finally {
       setLoading(false)
     }
@@ -50,7 +54,7 @@ export default function Facebook() {
       const res = await api.facebook.extract({ account_id: accountId, date_start: weekAgo, date_end: today })
       setStatus({
         running: false,
-        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})`,
+        lastResult: `Extracted ${res.metrics_extracted} metrics (${res.status})${res.warnings?.length ? ' — ' + res.warnings.join(' ') : ''}`,
         error: res.errors.length ? res.errors.join('; ') : null,
       })
       if (res.status === 'completed') loadData()
@@ -80,6 +84,10 @@ export default function Facebook() {
   const trendData = useTrends('facebook', metricNames)
   const hasData = metrics.length > 0
   const hasAccounts = accounts.length > 0
+  // No insights (profile without professional mode): only profile numbers were pulled.
+  const isPublic = metricValue('views') === null && (metricValue('friends') !== null || metricValue('followers') !== null)
+  const postSum = (key: string) => posts.reduce((s, p) => s + (p.metrics[key] ?? 0), 0)
+  const asOf = (name: string) => metrics.find((m) => m.metric_name === name)?.date_end ?? '—'
 
   return (
     <div className="p-8">
@@ -138,6 +146,20 @@ export default function Facebook() {
       ) : (
         <>
           {/* Metric cards */}
+          {isPublic ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <StatCard
+                title={metricValue('followers') !== null ? 'Followers' : 'Friends'}
+                value={formatNum(metricValue('followers') ?? metricValue('friends'))}
+                subtitle={`As of ${asOf(metricValue('followers') !== null ? 'followers' : 'friends')}`}
+                icon={Users}
+                color="text-green-500"
+              />
+              <StatCard title="Reactions (recent posts)" value={formatNum(postSum('reactions'))} subtitle={`${posts.length} newest posts`} icon={ThumbsUp} color="text-blue-500" />
+              <StatCard title="Comments (recent posts)" value={formatNum(postSum('comments'))} subtitle={`${posts.length} newest posts`} icon={MessageCircle} color="text-amber-500" />
+              <StatCard title="Shares (recent posts)" value={formatNum(postSum('shares'))} subtitle={`${posts.length} newest posts`} icon={Heart} color="text-red-500" />
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
               title="Views"
@@ -168,6 +190,12 @@ export default function Facebook() {
               color="text-amber-500"
             />
           </div>
+          )}
+
+          <PostsTable
+            posts={posts}
+            columns={[{ key: 'reactions', label: 'Reactions' }, { key: 'comments', label: 'Comments' }, { key: 'shares', label: 'Shares' }]}
+          />
 
           {/* Trend chart */}
           {trendData.length > 0 && (

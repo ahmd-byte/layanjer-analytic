@@ -141,22 +141,10 @@ async def instagram_extract(req: ExtractionRequest, db: Session = Depends(get_db
             raise HTTPException(400, f"Unknown job_type: {req.job_type}")
 
         metrics_saved = 0
-        if result.success and result.metrics:
-            for m in result.metrics:
-                acct_metric = AccountMetric(
-                    platform="instagram",
-                    account_id=req.account_id,
-                    metric_name=m["metric_name"],
-                    metric_value=m["metric_value"],
-                    date_start=m["date_start"],
-                    date_end=m["date_end"],
-                    source_dashboard=m.get("source_dashboard", ""),
-                    extraction_method=m.get("extraction_method", ""),
-                    extraction_run_id=run.id,
-                    validation_status="extracted",
-                )
-                db.merge(acct_metric)
-                metrics_saved += 1
+        if result.success:
+            from layan_engine.storage.metrics import save_result
+
+            metrics_saved = save_result(db, "instagram", req.account_id, result, run.id)
 
         run.status = "completed" if result.success else "failed"
         run.metrics_extracted = metrics_saved
