@@ -60,12 +60,22 @@ class SheetsClient:
         log.info("sheets_client_connected")
 
     def open_spreadsheet(self):
+        import gspread
+
         self._ensure_connected()
         try:
             self._spreadsheet = self._gc.open_by_key(self._spreadsheet_id)
             log.info("spreadsheet_opened", spreadsheet_id=self._spreadsheet_id)
+        except PermissionError as e:
+            email = getattr(getattr(self._gc, "http_client", None), "auth", None)
+            email = getattr(email, "service_account_email", "the service account")
+            raise SheetsClientError(
+                f"Permission denied. Share the spreadsheet with {email} as Editor."
+            ) from e
+        except gspread.SpreadsheetNotFound as e:
+            raise SheetsClientError("Spreadsheet not found. Check GOOGLE_SHEETS_SPREADSHEET_ID.") from e
         except Exception as e:
-            raise SheetsClientError(f"Cannot open spreadsheet: {e}") from e
+            raise SheetsClientError(f"Cannot open spreadsheet: {e or e.__cause__ or type(e).__name__}") from e
         return self._spreadsheet
 
     def get_or_create_worksheet(self, title: str, rows: int = 1000, cols: int = 20):
