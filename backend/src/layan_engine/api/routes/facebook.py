@@ -148,7 +148,9 @@ async def facebook_extract(req: ExtractionRequest, db: Session = Depends(get_db)
         run.status = "completed" if result.success else "failed"
         run.metrics_extracted = metrics_saved
         run.metrics_failed = len(result.errors)
-        run.error_message = "; ".join(result.errors) if result.errors else None
+        from layan_engine.storage.runs import run_error_message
+
+        run.error_message = run_error_message(result)
         run.completed_at = datetime.now(timezone.utc)
         run.duration_seconds = (
             (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None

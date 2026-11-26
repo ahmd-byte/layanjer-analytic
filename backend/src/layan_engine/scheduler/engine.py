@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from layan_engine.storage.database import get_session_factory
+from layan_engine.storage.runs import run_error_message
 from layan_engine.storage.models import Schedule
 
 logger = logging.getLogger("layan.scheduler")
@@ -145,6 +146,7 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
 
     db = get_session_factory()()
     browser = None
+    run = None
     try:
         worker, browser = _get_worker(platform)
 
@@ -174,9 +176,10 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
             content = await worker.extract_content_metrics(account_id, start, today)
             result.metrics.extend(content.metrics)
             result.content_records.extend(content.content_records)
-            result.errors.extend(content.errors)
+            # Account numbers are the job's core; a post-list problem must not fail it.
+            result.warnings.extend(f"Posts: {e}" for e in content.errors)
             result.warnings.extend(content.warnings)
-            if not result.success and content.success:
+            if not result.success and content.success and content.content_records:
                 result.success = True
         else:
             run.status = "failed"
@@ -194,7 +197,7 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
         run.status = "completed" if result.success else "failed"
         run.metrics_extracted = metrics_saved
         run.metrics_failed = len(result.errors)
-        run.error_message = "; ".join(result.errors) if result.errors else None
+        run.error_message = run_error_message(result)
         run.completed_at = _utcnow()
         run.duration_seconds = (run.completed_at - run.started_at.replace(tzinfo=timezone.utc)).total_seconds() if run.started_at else None
         db.commit()
@@ -208,6 +211,15 @@ async def _run_extraction(schedule: Schedule) -> tuple[str, int, str | None]:
 
     except Exception as e:
         logger.exception("Scheduled extraction failed for %s/%s", platform, account_id)
+        if run is not None:  # never leave a crashed run showing "running"
+            try:
+                db.rollback()
+                run.status = "failed"
+                run.error_message = f"Crashed: {e}"[:1000]
+                run.completed_at = _utcnow()
+                db.commit()
+            except Exception:
+                logger.exception("Could not mark run %s failed", run.run_id)
         return "failed", 0, str(e)
     finally:
         if browser:

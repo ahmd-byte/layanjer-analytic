@@ -31,6 +31,9 @@ async def lifespan(app: FastAPI):
     init_db()
     _startup_time = datetime.now(timezone.utc)
 
+    from layan_engine.storage.runs import close_interrupted_runs
+    close_interrupted_runs()
+
     from layan_engine.scheduler.engine import scheduler_loop
     await scheduler_loop.start()
     logger.info("Layan Je Analytics started on http://%s:%d", settings.backend_host, settings.backend_port)
