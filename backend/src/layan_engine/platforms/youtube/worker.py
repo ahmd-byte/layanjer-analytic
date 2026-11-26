@@ -104,10 +104,12 @@ class YouTubeWorker(PlatformWorker):
             await page.goto(STUDIO_URL, wait_until="domcontentloaded", timeout=settings.browser_timeout)
             log.info("youtube_login_opened", message="Waiting for user to authenticate...")
 
-            # Wait up to 5 minutes for the user to complete login
+            # Wait up to 5 minutes for the user to complete login. Studio lands on
+            # /channel/UC… only once signed in; any Studio URL would match before the
+            # redirect to accounts.google.com and close the window too early.
             try:
                 await page.wait_for_url(
-                    "**/studio.youtube.com/**",
+                    lambda url: "studio.youtube.com/channel/UC" in url,
                     timeout=300_000,
                 )
             except PlaywrightTimeout:
