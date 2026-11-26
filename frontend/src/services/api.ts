@@ -11,6 +11,9 @@ export interface HealthStatus {
   version: string
   ai_provider: string
   ai_configured: boolean
+  database: string
+  scheduler: string
+  uptime_seconds: number | null
 }
 
 export interface SystemStatus {

@@ -1,7 +1,7 @@
 # Development Status
 
 ## Current Phase
-Phase 11 — Scheduling and Continuous Operation (complete)
+Phase 12 — Production Hardening (complete)
 
 ## Completed
 - [x] Phase 1: Environment & GitHub initialization
@@ -127,8 +127,21 @@ Phase 11 — Scheduling and Continuous Operation (complete)
   - 16 new scheduler tests (model, engine CRUD, due filtering, loop state, 8 API route tests)
   - 157 total tests passing
 
+## In Progress
+- [x] Phase 12: Production hardening
+  - Startup config validation: checks localhost binding, port range, DB path, AI provider, Sheets config
+  - Errors block startup, warnings are logged (missing AI key, missing Sheets config)
+  - ErrorHandlerMiddleware: catches unhandled exceptions, returns structured JSON {error, message, path}
+  - RequestLoggingMiddleware: logs method, path, status, duration; adds X-Response-Time header
+  - RateLimitMiddleware: sliding-window rate limiter per IP (120 req/min general, 10 req/min extraction)
+  - Returns 429 with Retry-After header when exceeded; adds X-RateLimit-Remaining header
+  - Enhanced /api/health endpoint: DB connectivity check, scheduler state, uptime tracking
+  - Graceful shutdown via FastAPI lifespan (scheduler stop on shutdown)
+  - Frontend HealthStatus interface updated with database, scheduler, uptime_seconds fields
+  - 15 new hardening tests (config validation, rate limiter, health check, middleware headers)
+  - 172 total tests passing
+
 ## Pending
-- Phase 12: Production hardening
 - Phase 13: Stability observation
 
 ## Blockers
@@ -151,4 +164,4 @@ Phase 11 — Scheduling and Continuous Operation (complete)
 - Persistent browser profiles per platform/account
 
 ## Next Task
-Phase 12: Production hardening — error handling, logging, rate limiting, graceful shutdown, and configuration validation.
+Phase 13: Stability observation — monitor the system running end-to-end, verify all components work together.
